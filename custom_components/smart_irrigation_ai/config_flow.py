@@ -18,9 +18,10 @@ from .const import (
     CONF_MOISTURE_SENSORS,
     CONF_RAIN_SENSOR,
     CONF_WATERING_DAYS,
-    CONF_WATERING_START_TIME,
-    CONF_WATERING_END_TIME,
-    CONF_MAX_DAILY_RUNTIME,
+    CONF_SCHEDULE_MODE,
+    CONF_SCHEDULE_TIME,
+    CONF_SCHEDULE_SUN_EVENT,
+    CONF_SUN_OFFSET,
     CONF_CYCLE_SOAK_ENABLED,
     CONF_ZONES,
     CONF_USE_HA_RACHIO,
@@ -29,9 +30,14 @@ from .const import (
     SLOPE_TYPES,
     SUN_EXPOSURE,
     NOZZLE_TYPES,
-    DEFAULT_MAX_DAILY_RUNTIME,
-    DEFAULT_START_TIME,
-    DEFAULT_END_TIME,
+    DEFAULT_WATERING_DAYS,
+    DEFAULT_SCHEDULE_MODE,
+    DEFAULT_SCHEDULE_TIME,
+    DEFAULT_SUN_OFFSET,
+    SCHEDULE_MODE_START_AT,
+    SCHEDULE_MODE_FINISH_BY,
+    SUN_EVENT_SUNRISE,
+    SUN_EVENT_SUNSET,
 )
 from .rachio.ha_controller import HAZoneController
 
@@ -175,9 +181,19 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Configure watering schedule."""
         if user_input is not None:
             self._watering_days = user_input.get(CONF_WATERING_DAYS, ["0", "2", "4", "6"])
-            self._start_time = user_input.get(CONF_WATERING_START_TIME, DEFAULT_START_TIME)
-            self._end_time = user_input.get(CONF_WATERING_END_TIME, DEFAULT_END_TIME)
-            self._max_runtime = user_input.get(CONF_MAX_DAILY_RUNTIME, DEFAULT_MAX_DAILY_RUNTIME)
+            self._schedule_mode = user_input.get(CONF_SCHEDULE_MODE, SCHEDULE_MODE_START_AT)
+
+            # Handle time type selection
+            time_type = user_input.get("time_type", "specific")
+            if time_type == "specific":
+                self._schedule_time = user_input.get(CONF_SCHEDULE_TIME, DEFAULT_SCHEDULE_TIME)
+                self._schedule_sun_event = None
+                self._sun_offset = 0
+            else:
+                self._schedule_time = None
+                self._schedule_sun_event = user_input.get(CONF_SCHEDULE_SUN_EVENT, SUN_EVENT_SUNRISE)
+                self._sun_offset = user_input.get(CONF_SUN_OFFSET, DEFAULT_SUN_OFFSET)
+
             self._cycle_soak = user_input.get(CONF_CYCLE_SOAK_ENABLED, True)
 
             # Start zone configuration
@@ -197,6 +213,21 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {"value": "6", "label": "Sunday"},
         ]
 
+        schedule_mode_options = [
+            {"value": SCHEDULE_MODE_START_AT, "label": "Start watering at"},
+            {"value": SCHEDULE_MODE_FINISH_BY, "label": "Finish watering by"},
+        ]
+
+        time_type_options = [
+            {"value": "specific", "label": "Specific time"},
+            {"value": "sun", "label": "Based on sunrise/sunset"},
+        ]
+
+        sun_event_options = [
+            {"value": SUN_EVENT_SUNRISE, "label": "Sunrise"},
+            {"value": SUN_EVENT_SUNSET, "label": "Sunset"},
+        ]
+
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_WATERING_DAYS,
@@ -208,21 +239,44 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     mode=selector.SelectSelectorMode.LIST,
                 ),
             ),
+            vol.Required(
+                CONF_SCHEDULE_MODE,
+                default=SCHEDULE_MODE_START_AT,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=schedule_mode_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Required(
+                "time_type",
+                default="specific",
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=time_type_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
             vol.Optional(
-                CONF_WATERING_START_TIME,
-                default=DEFAULT_START_TIME,
+                CONF_SCHEDULE_TIME,
+                default=DEFAULT_SCHEDULE_TIME,
             ): selector.TimeSelector(),
             vol.Optional(
-                CONF_WATERING_END_TIME,
-                default=DEFAULT_END_TIME,
-            ): selector.TimeSelector(),
+                CONF_SCHEDULE_SUN_EVENT,
+                default=SUN_EVENT_SUNRISE,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=sun_event_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
             vol.Optional(
-                CONF_MAX_DAILY_RUNTIME,
-                default=DEFAULT_MAX_DAILY_RUNTIME,
+                CONF_SUN_OFFSET,
+                default=0,
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=10,
-                    max=480,
+                    min=-120,
+                    max=120,
                     step=5,
                     unit_of_measurement="minutes",
                     mode=selector.NumberSelectorMode.BOX,
@@ -402,9 +456,10 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_WEATHER_ENTITY: getattr(self, '_weather_entity', None),
             CONF_RAIN_SENSOR: getattr(self, '_rain_sensor', None),
             CONF_WATERING_DAYS: [int(d) for d in getattr(self, '_watering_days', ["0", "2", "4", "6"])],
-            CONF_WATERING_START_TIME: getattr(self, '_start_time', DEFAULT_START_TIME),
-            CONF_WATERING_END_TIME: getattr(self, '_end_time', DEFAULT_END_TIME),
-            CONF_MAX_DAILY_RUNTIME: getattr(self, '_max_runtime', DEFAULT_MAX_DAILY_RUNTIME),
+            CONF_SCHEDULE_MODE: getattr(self, '_schedule_mode', SCHEDULE_MODE_START_AT),
+            CONF_SCHEDULE_TIME: getattr(self, '_schedule_time', DEFAULT_SCHEDULE_TIME),
+            CONF_SCHEDULE_SUN_EVENT: getattr(self, '_schedule_sun_event', None),
+            CONF_SUN_OFFSET: getattr(self, '_sun_offset', DEFAULT_SUN_OFFSET),
             CONF_CYCLE_SOAK_ENABLED: getattr(self, '_cycle_soak', True),
             CONF_ZONES: self._zones_config,
             CONF_MOISTURE_SENSORS: getattr(self, '_moisture_sensors', {}),
@@ -438,6 +493,14 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Handle options flow."""
         if user_input is not None:
+            # Process the time type
+            time_type = user_input.pop("time_type", "specific")
+            if time_type == "specific":
+                user_input[CONF_SCHEDULE_SUN_EVENT] = None
+                user_input[CONF_SUN_OFFSET] = 0
+            else:
+                user_input[CONF_SCHEDULE_TIME] = None
+
             return self.async_create_entry(title="", data=user_input)
 
         data = self.config_entry.data
@@ -452,7 +515,23 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             {"value": "6", "label": "Sunday"},
         ]
 
+        schedule_mode_options = [
+            {"value": SCHEDULE_MODE_START_AT, "label": "Start watering at"},
+            {"value": SCHEDULE_MODE_FINISH_BY, "label": "Finish watering by"},
+        ]
+
+        time_type_options = [
+            {"value": "specific", "label": "Specific time"},
+            {"value": "sun", "label": "Based on sunrise/sunset"},
+        ]
+
+        sun_event_options = [
+            {"value": SUN_EVENT_SUNRISE, "label": "Sunrise"},
+            {"value": SUN_EVENT_SUNSET, "label": "Sunset"},
+        ]
+
         current_days = [str(d) for d in data.get(CONF_WATERING_DAYS, [0, 2, 4, 6])]
+        current_time_type = "sun" if data.get(CONF_SCHEDULE_SUN_EVENT) else "specific"
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -465,21 +544,44 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 ),
             ),
+            vol.Required(
+                CONF_SCHEDULE_MODE,
+                default=data.get(CONF_SCHEDULE_MODE, SCHEDULE_MODE_START_AT),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=schedule_mode_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Required(
+                "time_type",
+                default=current_time_type,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=time_type_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
             vol.Optional(
-                CONF_WATERING_START_TIME,
-                default=data.get(CONF_WATERING_START_TIME, DEFAULT_START_TIME),
+                CONF_SCHEDULE_TIME,
+                default=data.get(CONF_SCHEDULE_TIME, DEFAULT_SCHEDULE_TIME),
             ): selector.TimeSelector(),
             vol.Optional(
-                CONF_WATERING_END_TIME,
-                default=data.get(CONF_WATERING_END_TIME, DEFAULT_END_TIME),
-            ): selector.TimeSelector(),
+                CONF_SCHEDULE_SUN_EVENT,
+                default=data.get(CONF_SCHEDULE_SUN_EVENT, SUN_EVENT_SUNRISE),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=sun_event_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
             vol.Optional(
-                CONF_MAX_DAILY_RUNTIME,
-                default=data.get(CONF_MAX_DAILY_RUNTIME, DEFAULT_MAX_DAILY_RUNTIME),
+                CONF_SUN_OFFSET,
+                default=data.get(CONF_SUN_OFFSET, DEFAULT_SUN_OFFSET),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=10,
-                    max=480,
+                    min=-120,
+                    max=120,
                     step=5,
                     unit_of_measurement="minutes",
                     mode=selector.NumberSelectorMode.BOX,

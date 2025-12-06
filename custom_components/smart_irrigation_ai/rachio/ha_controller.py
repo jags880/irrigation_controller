@@ -70,26 +70,19 @@ class HAZoneController:
             # Zone switches - Rachio zones are switches but NOT the main controller
             # The main controller switch typically has "controller" or is the device itself
             if entity.domain == "switch":
-                # Check if this is a zone by looking at attributes or unique_id
-                # Rachio zone unique_ids typically contain the zone ID
-                # Controller switches have different patterns
-                is_controller = (
-                    "controller" in entity.entity_id.lower() or
-                    "standby" in entity.entity_id.lower() or
+                # Check if this is NOT a zone (controller, rain delay, standby, etc.)
+                entity_id_lower = entity.entity_id.lower()
+                is_not_zone = (
+                    "controller" in entity_id_lower or
+                    "standby" in entity_id_lower or
+                    "rain" in entity_id_lower or
+                    "delay" in entity_id_lower or
                     state.attributes.get("device_class") == "switch"
                 )
 
-                # Also check if it has zone-specific attributes
-                has_zone_attrs = (
-                    state.attributes.get("zone_number") is not None or
-                    "zone" in entity.entity_id.lower() or
-                    # Rachio zones have these attributes
-                    state.attributes.get("enabled") is not None
-                )
-
-                if is_controller:
+                if is_not_zone:
                     controller_switches.append(entity.entity_id)
-                    _LOGGER.debug("Identified as controller switch: %s", entity.entity_id)
+                    _LOGGER.debug("Identified as non-zone switch: %s", entity.entity_id)
                 else:
                     # This is likely a zone switch
                     zone_num = self._extract_zone_number(entity.entity_id, state)

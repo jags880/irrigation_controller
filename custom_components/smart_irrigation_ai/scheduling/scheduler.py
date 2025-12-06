@@ -8,13 +8,23 @@ from typing import Any, Callable
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval, async_track_point_in_time
+from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
 
 from ..const import (
     DEFAULT_WATERING_DAYS,
-    DEFAULT_START_TIME,
-    DEFAULT_END_TIME,
+    DEFAULT_SCHEDULE_MODE,
+    DEFAULT_SCHEDULE_TIME,
+    DEFAULT_SUN_OFFSET,
     SCHEDULE_RECALC_HOURS,
+    CONF_SCHEDULE_MODE,
+    CONF_SCHEDULE_TIME,
+    CONF_SCHEDULE_SUN_EVENT,
+    CONF_SUN_OFFSET,
+    SCHEDULE_MODE_START_AT,
+    SCHEDULE_MODE_FINISH_BY,
+    SUN_EVENT_SUNRISE,
+    SUN_EVENT_SUNSET,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,9 +58,10 @@ class SmartScheduler:
 
         # Parse configuration
         self._watering_days = config.get("watering_days", DEFAULT_WATERING_DAYS)
-        self._start_time = self._parse_time(config.get("watering_start_time", DEFAULT_START_TIME))
-        self._end_time = self._parse_time(config.get("watering_end_time", DEFAULT_END_TIME))
-        self._max_runtime = config.get("max_daily_runtime", 180)
+        self._schedule_mode = config.get(CONF_SCHEDULE_MODE, DEFAULT_SCHEDULE_MODE)
+        self._schedule_time = config.get(CONF_SCHEDULE_TIME)
+        self._schedule_sun_event = config.get(CONF_SCHEDULE_SUN_EVENT)
+        self._sun_offset = config.get(CONF_SUN_OFFSET, DEFAULT_SUN_OFFSET)
         self._cycle_soak_enabled = config.get("cycle_soak_enabled", True)
 
         # State
@@ -67,13 +78,62 @@ class SmartScheduler:
         # History
         self._run_history: list[dict[str, Any]] = []
 
-    def _parse_time(self, time_str: str) -> time:
+    def _parse_time(self, time_str: str | None) -> time | None:
         """Parse time string."""
+        if not time_str:
+            return None
         try:
             parts = time_str.split(":")
             return time(int(parts[0]), int(parts[1]))
         except (ValueError, IndexError):
             return time(5, 0)
+
+    def _get_sun_event_time(self, event: str, target_date: date) -> datetime | None:
+        """Get sunrise or sunset time for a specific date.
+
+        Args:
+            event: 'sunrise' or 'sunset'
+            target_date: The date to get the sun event for
+
+        Returns:
+            datetime of the sun event, or None if unavailable
+        """
+        try:
+            event_time = get_astral_event_date(
+                self.hass,
+                event,
+                target_date,
+            )
+            return event_time
+        except Exception as err:
+            _LOGGER.error("Error getting %s time: %s", event, err)
+            return None
+
+    def _get_scheduled_time(self, target_date: date) -> datetime | None:
+        """Calculate the scheduled time for a specific date.
+
+        Args:
+            target_date: The date to calculate the schedule for
+
+        Returns:
+            datetime of when irrigation should start (or finish, depending on mode)
+        """
+        if self._schedule_sun_event:
+            # Use sunrise/sunset
+            sun_time = self._get_sun_event_time(self._schedule_sun_event, target_date)
+            if sun_time:
+                # Apply offset
+                scheduled = sun_time + timedelta(minutes=self._sun_offset)
+                return scheduled
+            else:
+                # Fallback to 5 AM if sun event unavailable
+                return datetime.combine(target_date, time(5, 0))
+        else:
+            # Use specific time
+            parsed_time = self._parse_time(self._schedule_time)
+            if parsed_time:
+                return datetime.combine(target_date, parsed_time)
+            return datetime.combine(target_date, time(5, 0))
 
     async def async_start(self) -> None:
         """Start the scheduler."""
@@ -152,12 +212,20 @@ class SmartScheduler:
             return {}
 
     def _calculate_next_run_time(self) -> datetime | None:
-        """Calculate the next scheduled run time."""
+        """Calculate the next scheduled run time.
+
+        For 'start_at' mode: returns when irrigation should start
+        For 'finish_by' mode: returns when irrigation should start
+            (calculated by subtracting estimated runtime from finish time)
+        """
         now = dt_util.now()
 
         # Check rain delay
         if self._rain_delay_until and now < self._rain_delay_until:
             return self._rain_delay_until
+
+        # Get estimated total runtime for finish_by calculation
+        total_runtime_minutes = self._schedule.get("total_runtime", 60)
 
         # Find next valid watering day
         for days_ahead in range(8):  # Check up to a week ahead
@@ -165,11 +233,30 @@ class SmartScheduler:
             weekday = check_date.weekday()
 
             if weekday in self._watering_days:
-                # Check if we can still run today
-                run_datetime = datetime.combine(check_date, self._start_time)
-                run_datetime = dt_util.as_local(run_datetime.replace(tzinfo=now.tzinfo))
+                # Get the scheduled time for this date (handles sun events dynamically)
+                scheduled_time = self._get_scheduled_time(check_date)
 
+                if scheduled_time is None:
+                    continue
+
+                # Make it timezone-aware
+                if scheduled_time.tzinfo is None:
+                    scheduled_time = dt_util.as_local(scheduled_time)
+
+                # For finish_by mode, subtract runtime to get start time
+                if self._schedule_mode == SCHEDULE_MODE_FINISH_BY:
+                    run_datetime = scheduled_time - timedelta(minutes=total_runtime_minutes)
+                else:
+                    run_datetime = scheduled_time
+
+                # Check if this time is in the future
                 if run_datetime > now:
+                    _LOGGER.debug(
+                        "Next run calculated: %s (mode: %s, sun_event: %s)",
+                        run_datetime,
+                        self._schedule_mode,
+                        self._schedule_sun_event,
+                    )
                     return run_datetime
 
         return None
@@ -361,8 +448,10 @@ class SmartScheduler:
             "skip_next": self._skip_next,
             "rain_delay_until": self._rain_delay_until.isoformat() if self._rain_delay_until else None,
             "watering_days": self._watering_days,
-            "start_time": self._start_time.isoformat(),
-            "end_time": self._end_time.isoformat(),
+            "schedule_mode": self._schedule_mode,
+            "schedule_time": self._schedule_time,
+            "schedule_sun_event": self._schedule_sun_event,
+            "sun_offset": self._sun_offset,
         }
 
     def get_run_history(self) -> list[dict[str, Any]]:
