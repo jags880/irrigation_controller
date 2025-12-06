@@ -78,6 +78,10 @@ class SmartScheduler:
         # History
         self._run_history: list[dict[str, Any]] = []
 
+        # Daily AI decision tracking
+        self._daily_decision: dict[str, Any] = {}
+        self._decision_history: list[dict[str, Any]] = []
+
     def _parse_time(self, time_str: str | None) -> time | None:
         """Parse time string."""
         if not time_str:
@@ -286,29 +290,63 @@ class SmartScheduler:
     async def async_execute_schedule(self) -> bool:
         """Execute the current schedule.
 
+        The AI makes a fresh decision at execution time, even on scheduled days.
+        This ensures that weather, soil moisture, and other factors are evaluated
+        right before watering starts.
+
         Returns:
             True if execution started successfully
         """
-        _LOGGER.info("Executing irrigation schedule")
+        _LOGGER.info("Executing irrigation schedule - making AI decision")
+        today = date.today()
 
-        # Check skip conditions
+        # Check manual skip conditions first
         if self._skip_next:
             _LOGGER.info("Skipping scheduled run (manual skip)")
             self._skip_next = False
+            self._record_decision(today, "skipped", "Manual skip requested")
             await self._schedule_next_run()
             return False
 
         if self._rain_delay_until and datetime.now() < self._rain_delay_until:
             _LOGGER.info("Skipping scheduled run (rain delay)")
+            self._record_decision(today, "skipped", "Rain delay active")
             await self._schedule_next_run()
             return False
+
+        # IMPORTANT: Make a fresh AI decision right now
+        # This is the key daily AI decision point
+        ai_decision = await self._make_daily_ai_decision()
+
+        if not ai_decision["should_water"]:
+            _LOGGER.info(
+                "AI decided NOT to water today: %s",
+                ai_decision.get("reason", "Conditions not favorable")
+            )
+            self._record_decision(
+                today,
+                "ai_skipped",
+                ai_decision.get("reason", "AI determined watering not needed"),
+                ai_decision
+            )
+            await self._schedule_next_run()
+            return False
+
+        _LOGGER.info(
+            "AI approved watering: %d zones, confidence %.0f%%",
+            ai_decision.get("zones_to_water", 0),
+            ai_decision.get("confidence", 0) * 100
+        )
+
+        # Record the positive decision
+        self._record_decision(today, "watering", "AI approved watering", ai_decision)
 
         # Recalculate schedule with fresh data
         await self.async_calculate_schedule()
 
         zones = self._schedule.get("zones", [])
         if not zones:
-            _LOGGER.info("No zones to water")
+            _LOGGER.info("No zones to water after recalculation")
             await self._schedule_next_run()
             return False
 
@@ -328,8 +366,6 @@ class SmartScheduler:
                                 "id": zone_info["zone_id"],
                                 "duration": cycle["cycle"] * 60,  # Convert to seconds
                             })
-                            # Note: Soak time handled by Rachio or we'd need to
-                            # implement our own sequencing
                     else:
                         zones_to_run.append({
                             "id": zone_info["zone_id"],
@@ -346,6 +382,7 @@ class SmartScheduler:
                     "total_duration": sum(z["duration"] for z in zones_to_run) // 60,
                     "success": success,
                     "schedule": self._schedule.copy(),
+                    "ai_decision": ai_decision,
                 })
 
                 # Keep only last 30 runs
@@ -365,6 +402,129 @@ class SmartScheduler:
             await self._schedule_next_run()
 
         return False
+
+    async def _make_daily_ai_decision(self) -> dict[str, Any]:
+        """Make the daily AI decision about whether to water.
+
+        This is the core decision point that evaluates all factors and
+        determines if watering should proceed today.
+
+        Returns:
+            Dictionary with decision details
+        """
+        try:
+            # Get fresh recommendations from AI model
+            recommendations = await self.ai_model.async_get_all_recommendations()
+
+            # Count zones that need water
+            zones_needing_water = [
+                r for r in recommendations.values()
+                if r.should_water and r.duration_minutes > 0
+            ]
+
+            # Calculate aggregate factors
+            total_confidence = 0
+            skip_reasons = []
+
+            for zone_id, rec in recommendations.items():
+                if rec.skip_reason:
+                    skip_reasons.append(f"{rec.zone_name}: {rec.skip_reason}")
+                total_confidence += rec.confidence
+
+            avg_confidence = total_confidence / len(recommendations) if recommendations else 0
+
+            # Get model status for weather/environmental factors
+            model_status = self.ai_model.get_model_status()
+
+            # Make the decision
+            should_water = len(zones_needing_water) > 0
+
+            decision = {
+                "timestamp": datetime.now().isoformat(),
+                "should_water": should_water,
+                "zones_to_water": len(zones_needing_water),
+                "total_zones": len(recommendations),
+                "confidence": avg_confidence,
+                "skip_reasons": skip_reasons,
+                "reason": self._generate_decision_reason(
+                    should_water, zones_needing_water, skip_reasons, model_status
+                ),
+                "weather_status": model_status.get("weather_status", {}),
+                "rain_status": model_status.get("rain_status", {}),
+            }
+
+            # Store as today's decision
+            self._daily_decision = decision
+
+            return decision
+
+        except Exception as err:
+            _LOGGER.error("Error making AI decision: %s", err)
+            # On error, default to watering (fail-safe for plants)
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "should_water": True,
+                "reason": "AI decision error - defaulting to water",
+                "confidence": 0.5,
+                "error": str(err),
+            }
+
+    def _generate_decision_reason(
+        self,
+        should_water: bool,
+        zones_needing_water: list,
+        skip_reasons: list[str],
+        model_status: dict[str, Any],
+    ) -> str:
+        """Generate a human-readable reason for the AI decision."""
+        if should_water:
+            zone_count = len(zones_needing_water)
+            return f"{zone_count} zone(s) need water based on current conditions"
+
+        # Build skip reason
+        reasons = []
+
+        # Check weather
+        weather = model_status.get("weather_status", {})
+        if weather.get("condition") in ("rainy", "pouring"):
+            reasons.append("Currently raining")
+        if weather.get("precip_forecast", 0) > 0.5:
+            reasons.append("Rain expected")
+
+        # Check rain sensor
+        rain = model_status.get("rain_status", {})
+        if rain.get("tripped"):
+            reasons.append("Rain sensor triggered")
+
+        # Add zone-specific reasons
+        if skip_reasons:
+            reasons.extend(skip_reasons[:3])  # Limit to first 3
+
+        return "; ".join(reasons) if reasons else "Soil moisture levels adequate"
+
+    def _record_decision(
+        self,
+        decision_date: date,
+        decision_type: str,
+        reason: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a watering decision for history tracking."""
+        record = {
+            "date": decision_date.isoformat(),
+            "timestamp": datetime.now().isoformat(),
+            "type": decision_type,  # "watering", "skipped", "ai_skipped"
+            "reason": reason,
+            "details": details or {},
+        }
+
+        self._decision_history.append(record)
+
+        # Keep last 60 days of decisions
+        if len(self._decision_history) > 60:
+            self._decision_history = self._decision_history[-60:]
+
+        _LOGGER.debug("Recorded decision: %s - %s", decision_type, reason)
 
     async def async_run_zone_now(
         self, zone_id: str, duration_minutes: int | None = None
@@ -452,11 +612,21 @@ class SmartScheduler:
             "schedule_time": self._schedule_time,
             "schedule_sun_event": self._schedule_sun_event,
             "sun_offset": self._sun_offset,
+            "daily_decision": self._daily_decision,
         }
 
     def get_run_history(self) -> list[dict[str, Any]]:
         """Get watering run history."""
         return self._run_history.copy()
+
+    def get_decision_history(self) -> list[dict[str, Any]]:
+        """Get AI decision history."""
+        return self._decision_history.copy()
+
+    @property
+    def daily_decision(self) -> dict[str, Any]:
+        """Get today's AI decision."""
+        return self._daily_decision
 
     @property
     def is_running(self) -> bool:

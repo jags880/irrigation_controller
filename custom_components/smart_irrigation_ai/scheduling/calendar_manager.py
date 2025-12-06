@@ -86,12 +86,44 @@ class IrrigationCalendar:
                     duration = run.get("total_duration", 0)
                     end_time = run_time + timedelta(minutes=duration)
 
+                    # Include AI decision info if available
+                    ai_decision = run.get("ai_decision", {})
+                    confidence = ai_decision.get("confidence", 0)
+
                     events.append(CalendarEvent(
                         start=run_time,
                         end=end_time,
                         summary=f"Irrigation Complete: {run.get('zones', 0)} zones",
-                        description=f"Watered {run.get('zones', 0)} zones for {duration} minutes",
+                        description=f"Watered {run.get('zones', 0)} zones for {duration} minutes\n"
+                                   f"AI Confidence: {confidence*100:.0f}%",
                     ))
+            except (ValueError, TypeError):
+                pass
+
+        # Add AI decision history (skipped days)
+        decision_history = self.scheduler.get_decision_history()
+        for decision in decision_history:
+            try:
+                decision_time = datetime.fromisoformat(decision["timestamp"])
+                if start_date <= decision_time <= end_date:
+                    decision_type = decision.get("type", "")
+
+                    if decision_type == "ai_skipped":
+                        events.append(CalendarEvent(
+                            start=decision_time,
+                            end=decision_time + timedelta(minutes=5),
+                            summary=f"AI Skipped: {decision.get('reason', 'N/A')[:30]}",
+                            description=f"AI decided not to water\n"
+                                       f"Reason: {decision.get('reason', 'N/A')}",
+                        ))
+                    elif decision_type == "skipped":
+                        events.append(CalendarEvent(
+                            start=decision_time,
+                            end=decision_time + timedelta(minutes=5),
+                            summary=f"Skipped: {decision.get('reason', 'Manual')[:30]}",
+                            description=f"Watering skipped\n"
+                                       f"Reason: {decision.get('reason', 'N/A')}",
+                        ))
             except (ValueError, TypeError):
                 pass
 
@@ -149,7 +181,6 @@ class IrrigationCalendar:
         schedule = self.scheduler._schedule
 
         watering_days = self.scheduler._watering_days or [0, 2, 4, 6]
-        start_time = self.scheduler._start_time
 
         for i in range(days):
             check_date = date.today() + timedelta(days=i)
@@ -158,14 +189,28 @@ class IrrigationCalendar:
             is_watering_day = weekday in watering_days
             zones = schedule.get("zones", []) if is_watering_day and i < 2 else []
 
+            # Get scheduled time for this date (handles sun events)
+            scheduled_time = None
+            if is_watering_day:
+                sched_dt = self.scheduler._get_scheduled_time(check_date)
+                if sched_dt:
+                    scheduled_time = sched_dt.strftime("%H:%M")
+
+            # Check if AI would skip this day (based on current data, for display)
+            ai_status = "pending"
+            if i == 0 and self.scheduler._daily_decision:
+                decision = self.scheduler._daily_decision
+                ai_status = "water" if decision.get("should_water") else "skip"
+
             forecast.append({
                 "date": check_date.isoformat(),
                 "day_name": check_date.strftime("%A"),
                 "is_watering_day": is_watering_day,
-                "scheduled_time": start_time.isoformat() if is_watering_day else None,
+                "scheduled_time": scheduled_time,
                 "zones_count": len([z for z in zones if z.get("duration_minutes", 0) > 0]),
                 "total_duration": sum(z.get("duration_minutes", 0) for z in zones),
                 "total_water_inches": sum(z.get("water_amount_inches", 0) for z in zones),
+                "ai_status": ai_status,
             })
 
         return forecast

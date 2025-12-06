@@ -5,11 +5,13 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+import voluptuous as vol
 
 from .const import (
     DOMAIN,
@@ -27,6 +29,7 @@ from .coordinator import SmartIrrigationCoordinator
 from .ai.irrigation_model import IrrigationAIModel
 from .scheduling.scheduler import SmartScheduler
 from .rachio.ha_controller import HAZoneController
+from .panel import async_register_panel, async_unregister_panel
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +46,12 @@ PLATFORMS_TO_SETUP: list[Platform] = [
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Smart Irrigation AI component."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Register WebSocket API commands
+    websocket_api.async_register_command(hass, websocket_get_status)
+    websocket_api.async_register_command(hass, websocket_get_schedule)
+    websocket_api.async_register_command(hass, websocket_get_history)
+
     return True
 
 
@@ -126,6 +135,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Start the scheduler
     await scheduler.async_start()
 
+    # Register sidebar panel
+    await async_register_panel(hass)
+
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
     _LOGGER.info("Smart Irrigation AI setup complete")
@@ -140,6 +152,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         scheduler = data.get("scheduler")
         if scheduler:
             await scheduler.async_stop()
+
+    # Unregister panel
+    await async_unregister_panel(hass)
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS_TO_SETUP)
@@ -212,3 +227,98 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
     hass.services.async_register(DOMAIN, SERVICE_FORCE_RECALCULATE, handle_force_recalculate)
     hass.services.async_register(DOMAIN, SERVICE_SKIP_NEXT_WATERING, handle_skip_next_watering)
     hass.services.async_register(DOMAIN, SERVICE_RAIN_DELAY, handle_rain_delay)
+
+
+# WebSocket API handlers
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/get_status",
+    }
+)
+@websocket_api.async_response
+async def websocket_get_status(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle get_status websocket command."""
+    result = {"entries": []}
+
+    for entry_id, data in hass.data.get(DOMAIN, {}).items():
+        if not isinstance(data, dict):
+            continue
+
+        coordinator = data.get("coordinator")
+        ai_model = data.get("ai_model")
+        scheduler = data.get("scheduler")
+
+        if coordinator and ai_model and scheduler:
+            status = ai_model.get_model_status()
+            schedule = await scheduler.async_get_schedule()
+
+            result["entries"].append({
+                "entry_id": entry_id,
+                "status": status,
+                "schedule": schedule,
+                "is_running": scheduler.is_running,
+                "next_run": scheduler.next_run.isoformat() if scheduler.next_run else None,
+                "last_run": scheduler.last_run.isoformat() if scheduler.last_run else None,
+            })
+
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/get_schedule",
+    }
+)
+@websocket_api.async_response
+async def websocket_get_schedule(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle get_schedule websocket command."""
+    result = {"schedules": []}
+
+    for entry_id, data in hass.data.get(DOMAIN, {}).items():
+        if not isinstance(data, dict):
+            continue
+
+        scheduler = data.get("scheduler")
+        if scheduler:
+            schedule = await scheduler.async_get_schedule()
+            result["schedules"].append({
+                "entry_id": entry_id,
+                "schedule": schedule,
+            })
+
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/get_history",
+        vol.Optional("days", default=30): int,
+    }
+)
+@websocket_api.async_response
+async def websocket_get_history(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle get_history websocket command."""
+    result = {"history": []}
+
+    for entry_id, data in hass.data.get(DOMAIN, {}).items():
+        if not isinstance(data, dict):
+            continue
+
+        scheduler = data.get("scheduler")
+        if scheduler:
+            history = scheduler.get_run_history()
+            result["history"].extend(history)
+
+    connection.send_result(msg["id"], result)
