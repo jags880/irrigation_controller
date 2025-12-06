@@ -1,0 +1,196 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Rachio",
+        "description": "Enter your Rachio API key. You can find this at https://app.rach.io/account/settings",
+        "data": {
+          "rachio_api_key": "Rachio API Key"
+        }
+      },
+      "weather": {
+        "title": "Weather Configuration",
+        "description": "Select your weather entity and optional rain sensor for more accurate irrigation decisions.",
+        "data": {
+          "weather_entity": "Weather Entity",
+          "rain_sensor": "Rain Sensor (optional)"
+        }
+      },
+      "schedule": {
+        "title": "Watering Schedule",
+        "description": "Configure your watering schedule preferences.",
+        "data": {
+          "watering_days": "Watering Days",
+          "watering_start_time": "Start Time",
+          "watering_end_time": "End Time",
+          "max_daily_runtime": "Maximum Daily Runtime (minutes)",
+          "cycle_soak_enabled": "Enable Cycle & Soak"
+        }
+      },
+      "zone": {
+        "title": "Configure Zone {zone_number} of {total_zones}",
+        "description": "Configure settings for {zone_name}",
+        "data": {
+          "zone_type": "Vegetation Type",
+          "soil_type": "Soil Type",
+          "slope": "Slope",
+          "sun_exposure": "Sun Exposure",
+          "nozzle_type": "Sprinkler Type",
+          "enabled": "Enabled"
+        }
+      },
+      "moisture_sensors": {
+        "title": "Moisture Sensors",
+        "description": "Found {sensor_count} moisture sensors. Assign them to zones for smarter irrigation.",
+        "data": {}
+      }
+    },
+    "error": {
+      "invalid_api_key": "Invalid Rachio API key. Please check your API key and try again.",
+      "cannot_connect": "Failed to connect to Rachio API. Please check your internet connection.",
+      "unknown": "An unexpected error occurred. Please try again."
+    },
+    "abort": {
+      "already_configured": "This Rachio device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Irrigation Options",
+        "description": "Adjust your irrigation schedule and preferences.",
+        "data": {
+          "watering_days": "Watering Days",
+          "watering_start_time": "Start Time",
+          "watering_end_time": "End Time",
+          "max_daily_runtime": "Maximum Daily Runtime (minutes)",
+          "cycle_soak_enabled": "Enable Cycle & Soak"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Irrigation Status",
+        "state": {
+          "idle": "Idle",
+          "scheduled": "Scheduled",
+          "running": "Running",
+          "rain_delay": "Rain Delay",
+          "skip_scheduled": "Skip Scheduled"
+        }
+      },
+      "next_run": {
+        "name": "Next Scheduled Run"
+      },
+      "weather_factor": {
+        "name": "Weather Adjustment Factor"
+      },
+      "seasonal_factor": {
+        "name": "Seasonal Adjustment Factor"
+      },
+      "water_usage": {
+        "name": "Estimated Water Usage"
+      }
+    },
+    "switch": {
+      "scheduler_enabled": {
+        "name": "Smart Scheduler"
+      },
+      "rain_delay": {
+        "name": "Rain Delay"
+      }
+    },
+    "binary_sensor": {
+      "running": {
+        "name": "Irrigation Running"
+      },
+      "rain_sensor": {
+        "name": "Rain Detected"
+      },
+      "watering_needed": {
+        "name": "Watering Needed"
+      },
+      "weather_skip": {
+        "name": "Weather Skip Active"
+      }
+    },
+    "number": {
+      "max_runtime": {
+        "name": "Maximum Daily Runtime"
+      },
+      "rain_delay_hours": {
+        "name": "Rain Delay Duration"
+      },
+      "seasonal_adjustment": {
+        "name": "Seasonal Adjustment"
+      }
+    },
+    "select": {
+      "watering_mode": {
+        "name": "Watering Mode",
+        "state": {
+          "automatic": "Automatic (AI)",
+          "eco": "Eco (Water Saving)",
+          "aggressive": "Aggressive (Maximum Growth)",
+          "manual_only": "Manual Only",
+          "disabled": "Disabled"
+        }
+      }
+    },
+    "calendar": {
+      "schedule": {
+        "name": "Irrigation Schedule"
+      }
+    }
+  },
+  "services": {
+    "run_zone": {
+      "name": "Run Zone",
+      "description": "Start watering a specific zone.",
+      "fields": {
+        "zone_id": {
+          "name": "Zone ID",
+          "description": "The ID of the zone to water."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Duration in minutes. Leave empty to use AI recommendation."
+        }
+      }
+    },
+    "stop_all": {
+      "name": "Stop All Zones",
+      "description": "Stop all currently running irrigation zones."
+    },
+    "calculate_schedule": {
+      "name": "Calculate Schedule",
+      "description": "Recalculate the irrigation schedule based on current conditions."
+    },
+    "force_recalculate": {
+      "name": "Force Recalculate",
+      "description": "Force a complete recalculation of all zone recommendations and schedule."
+    },
+    "skip_next_watering": {
+      "name": "Skip Next Watering",
+      "description": "Skip the next scheduled watering.",
+      "fields": {
+        "zone_id": {
+          "name": "Zone ID",
+          "description": "Skip only this zone. Leave empty to skip entire schedule."
+        }
+      }
+    },
+    "rain_delay": {
+      "name": "Rain Delay",
+      "description": "Set a rain delay to pause automatic watering.",
+      "fields": {
+        "hours": {
+          "name": "Hours",
+          "description": "Number of hours to delay watering."
+        }
+      }
+    }
+  }
+}

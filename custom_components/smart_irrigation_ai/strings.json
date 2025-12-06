@@ -1,0 +1,112 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Rachio",
+        "description": "Enter your Rachio API key. You can find this at {rachio_url}",
+        "data": {
+          "rachio_api_key": "Rachio API Key"
+        }
+      },
+      "weather": {
+        "title": "Weather Configuration",
+        "description": "Select your weather entity and optional rain sensor for more accurate irrigation decisions.",
+        "data": {
+          "weather_entity": "Weather Entity",
+          "rain_sensor": "Rain Sensor (optional)"
+        }
+      },
+      "schedule": {
+        "title": "Watering Schedule",
+        "description": "Configure your watering schedule preferences.",
+        "data": {
+          "watering_days": "Watering Days",
+          "watering_start_time": "Start Time",
+          "watering_end_time": "End Time",
+          "max_daily_runtime": "Maximum Daily Runtime (minutes)",
+          "cycle_soak_enabled": "Enable Cycle & Soak"
+        }
+      },
+      "zone": {
+        "title": "Configure Zone {zone_number} of {total_zones}",
+        "description": "Configure settings for {zone_name}",
+        "data": {
+          "zone_type": "Vegetation Type",
+          "soil_type": "Soil Type",
+          "slope": "Slope",
+          "sun_exposure": "Sun Exposure",
+          "nozzle_type": "Sprinkler Type",
+          "enabled": "Enabled"
+        }
+      },
+      "moisture_sensors": {
+        "title": "Moisture Sensors",
+        "description": "Found {sensor_count} moisture sensors. Assign them to zones for smarter irrigation.",
+        "data": {}
+      }
+    },
+    "error": {
+      "invalid_api_key": "Invalid Rachio API key",
+      "cannot_connect": "Failed to connect to Rachio",
+      "unknown": "Unexpected error occurred"
+    },
+    "abort": {
+      "already_configured": "This Rachio device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Irrigation Options",
+        "description": "Adjust your irrigation settings.",
+        "data": {
+          "watering_days": "Watering Days",
+          "watering_start_time": "Start Time",
+          "watering_end_time": "End Time",
+          "max_daily_runtime": "Maximum Daily Runtime (minutes)",
+          "cycle_soak_enabled": "Enable Cycle & Soak"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Irrigation Status"
+      },
+      "next_run": {
+        "name": "Next Scheduled Run"
+      },
+      "weather_factor": {
+        "name": "Weather Factor"
+      },
+      "seasonal_factor": {
+        "name": "Seasonal Factor"
+      }
+    },
+    "switch": {
+      "scheduler_enabled": {
+        "name": "Scheduler"
+      },
+      "rain_delay": {
+        "name": "Rain Delay"
+      }
+    },
+    "binary_sensor": {
+      "running": {
+        "name": "Irrigation Running"
+      },
+      "rain_sensor": {
+        "name": "Rain Detected"
+      },
+      "watering_needed": {
+        "name": "Watering Needed"
+      }
+    },
+    "calendar": {
+      "schedule": {
+        "name": "Irrigation Schedule"
+      }
+    }
+  }
+}
