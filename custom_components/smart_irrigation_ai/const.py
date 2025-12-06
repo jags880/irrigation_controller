@@ -15,11 +15,20 @@ CONF_MOISTURE_SENSORS: Final = "moisture_sensors"
 CONF_RAIN_SENSOR: Final = "rain_sensor"
 CONF_ZONES: Final = "zones"
 CONF_WATERING_DAYS: Final = "watering_days"
-CONF_WATERING_START_TIME: Final = "watering_start_time"
-CONF_WATERING_END_TIME: Final = "watering_end_time"
-CONF_MAX_DAILY_RUNTIME: Final = "max_daily_runtime"
+CONF_SCHEDULE_MODE: Final = "schedule_mode"  # "start_at" or "finish_by"
+CONF_SCHEDULE_TIME: Final = "schedule_time"  # Time value (HH:MM:SS) or None if using sun event
+CONF_SCHEDULE_SUN_EVENT: Final = "schedule_sun_event"  # "sunrise", "sunset", or None
+CONF_SUN_OFFSET: Final = "sun_offset"  # Minutes before (-) or after (+) sun event
 CONF_CYCLE_SOAK_ENABLED: Final = "cycle_soak_enabled"
 CONF_USE_HA_RACHIO: Final = "use_ha_rachio"
+
+# Schedule mode options
+SCHEDULE_MODE_START_AT: Final = "start_at"
+SCHEDULE_MODE_FINISH_BY: Final = "finish_by"
+
+# Sun event options
+SUN_EVENT_SUNRISE: Final = "sunrise"
+SUN_EVENT_SUNSET: Final = "sunset"
 
 # Zone configuration
 CONF_ZONE_ID: Final = "zone_id"
@@ -118,10 +127,10 @@ TEMP_THRESHOLD_FREEZE: Final = 32  # °F - skip watering
 TEMP_THRESHOLD_HOT: Final = 95  # °F - increase watering
 
 # Default values
-DEFAULT_MAX_DAILY_RUNTIME: Final = 180  # minutes
 DEFAULT_WATERING_DAYS: Final = [0, 2, 4, 6]  # Mon, Wed, Fri, Sun
-DEFAULT_START_TIME: Final = "05:00:00"
-DEFAULT_END_TIME: Final = "08:00:00"
+DEFAULT_SCHEDULE_MODE: Final = SCHEDULE_MODE_START_AT
+DEFAULT_SCHEDULE_TIME: Final = "05:00:00"
+DEFAULT_SUN_OFFSET: Final = 0  # minutes
 
 # Service names
 SERVICE_RUN_ZONE: Final = "run_zone"

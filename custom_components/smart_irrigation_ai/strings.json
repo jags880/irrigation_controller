@@ -11,12 +11,14 @@
       },
       "schedule": {
         "title": "Watering Schedule",
-        "description": "Configure your watering schedule preferences.",
+        "description": "Configure your watering schedule. Choose when to start or when to finish watering, using a specific time or sunrise/sunset.",
         "data": {
           "watering_days": "Watering Days",
-          "watering_start_time": "Start Time",
-          "watering_end_time": "End Time",
-          "max_daily_runtime": "Maximum Daily Runtime (minutes)",
+          "schedule_mode": "Schedule Mode",
+          "time_type": "Time Type",
+          "schedule_time": "Time (if using specific time)",
+          "schedule_sun_event": "Sun Event (if using sunrise/sunset)",
+          "sun_offset": "Minutes offset (negative = before, positive = after)",
           "cycle_soak_enabled": "Enable Cycle & Soak"
         }
       },
@@ -52,12 +54,14 @@
     "step": {
       "init": {
         "title": "Smart Irrigation Options",
-        "description": "Adjust your irrigation settings.",
+        "description": "Adjust your irrigation settings. Choose when to start or when to finish watering.",
         "data": {
           "watering_days": "Watering Days",
-          "watering_start_time": "Start Time",
-          "watering_end_time": "End Time",
-          "max_daily_runtime": "Maximum Daily Runtime (minutes)",
+          "schedule_mode": "Schedule Mode",
+          "time_type": "Time Type",
+          "schedule_time": "Time (if using specific time)",
+          "schedule_sun_event": "Sun Event (if using sunrise/sunset)",
+          "sun_offset": "Minutes offset (negative = before, positive = after)",
           "cycle_soak_enabled": "Enable Cycle & Soak"
         }
       }
