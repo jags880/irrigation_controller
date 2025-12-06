@@ -131,6 +131,7 @@ DEFAULT_WATERING_DAYS: Final = [0, 2, 4, 6]  # Mon, Wed, Fri, Sun
 DEFAULT_SCHEDULE_MODE: Final = SCHEDULE_MODE_START_AT
 DEFAULT_SCHEDULE_TIME: Final = "05:00:00"
 DEFAULT_SUN_OFFSET: Final = 0  # minutes
+DEFAULT_MAX_DAILY_RUNTIME: Final = 180  # minutes (3 hours)
 
 # Service names
 SERVICE_RUN_ZONE: Final = "run_zone"
