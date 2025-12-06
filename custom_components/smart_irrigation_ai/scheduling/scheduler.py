@@ -300,7 +300,7 @@ class SmartScheduler:
 
         return await self.rachio_api.async_run_zone(zone_id, duration_minutes * 60)
 
-    async def async_stop(self) -> bool:
+    async def async_stop_all_zones(self) -> bool:
         """Stop all running zones."""
         _LOGGER.info("Stopping all zones")
         self._is_running = False
