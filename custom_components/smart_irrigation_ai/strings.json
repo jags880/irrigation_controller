@@ -1,20 +1,6 @@
 {
   "config": {
     "step": {
-      "user": {
-        "title": "Smart Irrigation AI Setup",
-        "description": "{rachio_status} Use the existing Home Assistant Rachio integration for best results.",
-        "data": {
-          "use_ha_rachio": "Use Home Assistant Rachio Integration"
-        }
-      },
-      "api_key": {
-        "title": "Connect to Rachio",
-        "description": "Enter your Rachio API key. You can find this at {rachio_url}",
-        "data": {
-          "rachio_api_key": "Rachio API Key"
-        }
-      },
       "weather": {
         "title": "Weather Configuration",
         "description": "Found {zone_count} zones. Select your weather entity and optional rain sensor for more accurate irrigation decisions.",
@@ -53,13 +39,13 @@
       }
     },
     "error": {
-      "invalid_api_key": "Invalid Rachio API key",
       "cannot_connect": "Failed to connect to Rachio",
-      "no_rachio_zones": "No Rachio zones found in Home Assistant. Make sure the Rachio integration is set up.",
       "unknown": "Unexpected error occurred"
     },
     "abort": {
-      "already_configured": "This Rachio device is already configured"
+      "already_configured": "This Rachio device is already configured",
+      "rachio_not_found": "Rachio integration not found. Please set up the Rachio integration first in Home Assistant before adding Smart Irrigation AI.",
+      "no_rachio_zones": "No Rachio zones were discovered. Please check that your Rachio integration is properly configured and has zone switches available. Check Home Assistant logs for more details."
     }
   },
   "options": {

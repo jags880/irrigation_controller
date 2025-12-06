@@ -50,32 +50,63 @@ class HAZoneController:
         zones = []
         rain_sensors = []
         device_info = {}
+        controller_switches = []
+
+        _LOGGER.debug("Starting Rachio entity discovery")
 
         # Find all Rachio entities
         for entity in entity_reg.entities.values():
             if entity.platform != RACHIO_DOMAIN:
                 continue
 
+            _LOGGER.debug("Found Rachio entity: %s (domain: %s)", entity.entity_id, entity.domain)
+
             # Get entity state
             state = self.hass.states.get(entity.entity_id)
             if not state:
+                _LOGGER.debug("No state for entity: %s", entity.entity_id)
                 continue
 
-            # Zone switches
-            if entity.domain == "switch" and "zone" in entity.entity_id.lower():
-                zone_info = {
-                    "entity_id": entity.entity_id,
-                    "name": state.attributes.get("friendly_name", entity.entity_id),
-                    "zone_id": entity.unique_id or entity.entity_id,
-                    "enabled": state.state != STATE_UNAVAILABLE,
-                    "zone_number": self._extract_zone_number(entity.entity_id, state),
-                }
-                zones.append(zone_info)
+            # Zone switches - Rachio zones are switches but NOT the main controller
+            # The main controller switch typically has "controller" or is the device itself
+            if entity.domain == "switch":
+                # Check if this is a zone by looking at attributes or unique_id
+                # Rachio zone unique_ids typically contain the zone ID
+                # Controller switches have different patterns
+                is_controller = (
+                    "controller" in entity.entity_id.lower() or
+                    "standby" in entity.entity_id.lower() or
+                    state.attributes.get("device_class") == "switch"
+                )
 
-                # Get device info from first zone
-                if not device_info and entity.device_id:
-                    self._device_id = entity.device_id
-                    device_info = await self._get_device_info(entity.device_id)
+                # Also check if it has zone-specific attributes
+                has_zone_attrs = (
+                    state.attributes.get("zone_number") is not None or
+                    "zone" in entity.entity_id.lower() or
+                    # Rachio zones have these attributes
+                    state.attributes.get("enabled") is not None
+                )
+
+                if is_controller:
+                    controller_switches.append(entity.entity_id)
+                    _LOGGER.debug("Identified as controller switch: %s", entity.entity_id)
+                else:
+                    # This is likely a zone switch
+                    zone_num = self._extract_zone_number(entity.entity_id, state)
+                    zone_info = {
+                        "entity_id": entity.entity_id,
+                        "name": state.attributes.get("friendly_name", entity.entity_id),
+                        "zone_id": entity.unique_id or entity.entity_id,
+                        "enabled": state.state != STATE_UNAVAILABLE,
+                        "zone_number": zone_num,
+                    }
+                    zones.append(zone_info)
+                    _LOGGER.debug("Found zone: %s (zone_number: %d)", entity.entity_id, zone_num)
+
+                    # Get device info from first zone
+                    if not device_info and entity.device_id:
+                        self._device_id = entity.device_id
+                        device_info = await self._get_device_info(entity.device_id)
 
             # Rain sensor
             elif entity.domain == "binary_sensor" and "rain" in entity.entity_id.lower():
@@ -84,9 +115,15 @@ class HAZoneController:
                     "name": state.attributes.get("friendly_name", "Rain Sensor"),
                     "state": state.state == STATE_ON,
                 })
+                _LOGGER.debug("Found rain sensor: %s", entity.entity_id)
 
         # Sort zones by zone number
         zones.sort(key=lambda z: z.get("zone_number", 0))
+
+        _LOGGER.info(
+            "Rachio discovery complete: %d zones, %d rain sensors, %d controller switches",
+            len(zones), len(rain_sensors), len(controller_switches)
+        )
 
         return {
             "device_info": device_info,
