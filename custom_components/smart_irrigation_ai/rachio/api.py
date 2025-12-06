@@ -7,6 +7,7 @@ from typing import Any
 from datetime import datetime
 
 import aiohttp
+from async_timeout import timeout as async_timeout
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -52,7 +53,7 @@ class RachioAPI:
         url = f"{RACHIO_API_BASE}/{endpoint}"
 
         try:
-            async with asyncio.timeout(RACHIO_API_TIMEOUT):
+            async with async_timeout(RACHIO_API_TIMEOUT):
                 if method == "GET":
                     response = await self._session.get(url, headers=self.headers)
                 elif method == "POST":
