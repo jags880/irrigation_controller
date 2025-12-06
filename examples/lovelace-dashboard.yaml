@@ -1,0 +1,243 @@
+# Smart Irrigation AI - Example Lovelace Dashboard
+# Copy this to your Home Assistant dashboard configuration
+
+title: Smart Irrigation AI
+views:
+  - title: Irrigation Overview
+    path: irrigation
+    icon: mdi:sprinkler-variant
+    cards:
+      # Main Status Card
+      - type: custom:smart-irrigation-card
+        entity: sensor.smart_irrigation_status
+        weather_entity: weather.home
+        weather_factor_entity: sensor.smart_irrigation_weather_factor
+        seasonal_factor_entity: sensor.smart_irrigation_seasonal_factor
+        zones:
+          - entity: switch.smart_irrigation_zone_1
+            name: Front Lawn
+            moisture_entity: sensor.smart_irrigation_zone_1_moisture
+            recommendation_entity: sensor.smart_irrigation_zone_1_recommendation
+          - entity: switch.smart_irrigation_zone_2
+            name: Back Lawn
+            moisture_entity: sensor.smart_irrigation_zone_2_moisture
+            recommendation_entity: sensor.smart_irrigation_zone_2_recommendation
+          - entity: switch.smart_irrigation_zone_3
+            name: Garden Beds
+            moisture_entity: sensor.smart_irrigation_zone_3_moisture
+            recommendation_entity: sensor.smart_irrigation_zone_3_recommendation
+
+      # Quick Controls
+      - type: horizontal-stack
+        cards:
+          - type: button
+            name: Run All
+            icon: mdi:play
+            tap_action:
+              action: call-service
+              service: smart_irrigation_ai.calculate_schedule
+          - type: button
+            name: Stop
+            icon: mdi:stop
+            tap_action:
+              action: call-service
+              service: smart_irrigation_ai.stop_all
+          - type: button
+            name: Rain Delay
+            icon: mdi:weather-rainy
+            tap_action:
+              action: call-service
+              service: smart_irrigation_ai.rain_delay
+              data:
+                hours: 24
+
+      # Schedule Calendar
+      - type: calendar
+        entities:
+          - entity: calendar.smart_irrigation_schedule
+        initial_view: listWeek
+
+      # Weather & Conditions
+      - type: entities
+        title: Current Conditions
+        entities:
+          - entity: sensor.smart_irrigation_weather_factor
+            name: Weather Factor
+          - entity: sensor.smart_irrigation_seasonal_factor
+            name: Seasonal Factor
+          - entity: binary_sensor.smart_irrigation_rain_detected
+            name: Rain Detected
+          - entity: binary_sensor.smart_irrigation_watering_needed
+            name: Watering Needed
+          - entity: sensor.smart_irrigation_water_usage
+            name: Est. Water Usage
+
+      # Zone Controls
+      - type: entities
+        title: Zone Controls
+        show_header_toggle: false
+        entities:
+          - type: section
+            label: Lawn Zones
+          - entity: switch.smart_irrigation_front_lawn
+            secondary_info: last-changed
+          - entity: switch.smart_irrigation_back_lawn
+            secondary_info: last-changed
+          - type: section
+            label: Garden Zones
+          - entity: switch.smart_irrigation_garden_beds
+            secondary_info: last-changed
+          - entity: switch.smart_irrigation_flower_border
+            secondary_info: last-changed
+
+      # Zone Moisture Levels
+      - type: glance
+        title: Soil Moisture
+        columns: 4
+        entities:
+          - entity: sensor.smart_irrigation_zone_1_moisture
+            name: Front
+          - entity: sensor.smart_irrigation_zone_2_moisture
+            name: Back
+          - entity: sensor.smart_irrigation_zone_3_moisture
+            name: Garden
+          - entity: sensor.smart_irrigation_zone_4_moisture
+            name: Flowers
+
+      # AI Recommendations Graph
+      - type: history-graph
+        title: Moisture Trends (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.smart_irrigation_zone_1_moisture
+            name: Front Lawn
+          - entity: sensor.smart_irrigation_zone_2_moisture
+            name: Back Lawn
+          - entity: sensor.smart_irrigation_zone_3_moisture
+            name: Garden
+
+      # Settings
+      - type: entities
+        title: Settings
+        entities:
+          - entity: switch.smart_irrigation_scheduler
+            name: Enable Scheduler
+          - entity: switch.smart_irrigation_rain_delay
+            name: Rain Delay Active
+          - entity: number.smart_irrigation_max_runtime
+            name: Max Daily Runtime
+          - entity: number.smart_irrigation_seasonal_adjustment
+            name: Seasonal Adjustment
+          - entity: select.smart_irrigation_watering_mode
+            name: Watering Mode
+
+  - title: Zone Details
+    path: zones
+    icon: mdi:sprinkler
+    cards:
+      # Zone 1 - Front Lawn
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## 🌱 Front Lawn"
+          - type: entities
+            entities:
+              - entity: switch.smart_irrigation_front_lawn
+              - entity: sensor.smart_irrigation_zone_1_moisture
+              - entity: sensor.smart_irrigation_zone_1_duration
+              - entity: sensor.smart_irrigation_zone_1_deficit
+              - entity: binary_sensor.smart_irrigation_zone_1_needs_water
+          - type: horizontal-stack
+            cards:
+              - type: entity
+                entity: select.smart_irrigation_zone_1_type
+                name: Vegetation
+              - type: entity
+                entity: select.smart_irrigation_zone_1_soil
+                name: Soil
+          - type: horizontal-stack
+            cards:
+              - type: entity
+                entity: select.smart_irrigation_zone_1_sun
+                name: Sun
+              - type: entity
+                entity: select.smart_irrigation_zone_1_nozzle
+                name: Sprinkler
+
+      # Zone 2 - Back Lawn
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## 🌿 Back Lawn"
+          - type: entities
+            entities:
+              - entity: switch.smart_irrigation_back_lawn
+              - entity: sensor.smart_irrigation_zone_2_moisture
+              - entity: sensor.smart_irrigation_zone_2_duration
+              - entity: sensor.smart_irrigation_zone_2_deficit
+              - entity: binary_sensor.smart_irrigation_zone_2_needs_water
+          - type: horizontal-stack
+            cards:
+              - type: entity
+                entity: select.smart_irrigation_zone_2_type
+                name: Vegetation
+              - type: entity
+                entity: select.smart_irrigation_zone_2_soil
+                name: Soil
+
+      # Zone 3 - Garden
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## 🌺 Garden Beds"
+          - type: entities
+            entities:
+              - entity: switch.smart_irrigation_garden_beds
+              - entity: sensor.smart_irrigation_zone_3_moisture
+              - entity: sensor.smart_irrigation_zone_3_duration
+              - entity: sensor.smart_irrigation_zone_3_deficit
+              - entity: binary_sensor.smart_irrigation_zone_3_needs_water
+
+  - title: Analytics
+    path: analytics
+    icon: mdi:chart-line
+    cards:
+      # Water Usage Over Time
+      - type: statistics-graph
+        title: Water Usage (Last 7 Days)
+        entities:
+          - entity: sensor.smart_irrigation_water_usage
+        days_to_show: 7
+        stat_types:
+          - sum
+          - mean
+
+      # Weather Factor History
+      - type: history-graph
+        title: Weather & Seasonal Factors
+        hours_to_show: 168
+        entities:
+          - entity: sensor.smart_irrigation_weather_factor
+          - entity: sensor.smart_irrigation_seasonal_factor
+
+      # Moisture Trend Analysis
+      - type: statistics-graph
+        title: Average Moisture by Zone
+        entities:
+          - entity: sensor.smart_irrigation_zone_1_moisture
+          - entity: sensor.smart_irrigation_zone_2_moisture
+          - entity: sensor.smart_irrigation_zone_3_moisture
+        days_to_show: 7
+        stat_types:
+          - mean
+          - min
+          - max
+
+      # Run History
+      - type: logbook
+        title: Recent Activity
+        entities:
+          - switch.smart_irrigation_front_lawn
+          - switch.smart_irrigation_back_lawn
+          - switch.smart_irrigation_garden_beds
+        hours_to_show: 72

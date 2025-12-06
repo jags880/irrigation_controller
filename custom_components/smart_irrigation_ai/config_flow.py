@@ -1,0 +1,554 @@
+"""Config flow for Smart Irrigation AI integration."""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant import config_entries
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
+from homeassistant.helpers import entity_registry as er
+
+from .const import (
+    DOMAIN,
+    CONF_RACHIO_API_KEY,
+    CONF_WEATHER_ENTITY,
+    CONF_MOISTURE_SENSORS,
+    CONF_RAIN_SENSOR,
+    CONF_WATERING_DAYS,
+    CONF_WATERING_START_TIME,
+    CONF_WATERING_END_TIME,
+    CONF_MAX_DAILY_RUNTIME,
+    CONF_CYCLE_SOAK_ENABLED,
+    CONF_ZONES,
+    CONF_USE_HA_RACHIO,
+    ZONE_TYPES,
+    SOIL_TYPES,
+    SLOPE_TYPES,
+    SUN_EXPOSURE,
+    NOZZLE_TYPES,
+    DEFAULT_MAX_DAILY_RUNTIME,
+    DEFAULT_START_TIME,
+    DEFAULT_END_TIME,
+)
+from .rachio.ha_controller import HAZoneController
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def discover_rachio_zones(hass: HomeAssistant) -> dict[str, Any]:
+    """Discover Rachio zones from Home Assistant integration."""
+    controller = HAZoneController(hass)
+    return await controller.async_discover_rachio_entities()
+
+
+class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Smart Irrigation AI."""
+
+    VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._use_ha_rachio: bool = True
+        self._api_key: str | None = None
+        self._device_info: dict[str, Any] = {}
+        self._zones: list[dict[str, Any]] = []
+        self._zones_config: dict[str, dict[str, Any]] = {}
+        self._current_zone_index = 0
+        self._rain_sensors: list[dict[str, Any]] = []
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the initial step - choose integration mode."""
+        errors: dict[str, str] = {}
+
+        # Check if Rachio integration is available
+        rachio_available = await self._check_rachio_integration()
+
+        if user_input is not None:
+            self._use_ha_rachio = user_input.get("use_ha_rachio", True)
+
+            if self._use_ha_rachio:
+                # Discover existing Rachio entities
+                discovery = await discover_rachio_zones(self.hass)
+                self._zones = discovery.get("zones", [])
+                self._device_info = discovery.get("device_info", {})
+                self._rain_sensors = discovery.get("rain_sensors", [])
+
+                if not self._zones:
+                    errors["base"] = "no_rachio_zones"
+                else:
+                    # Set unique ID based on device
+                    device_id = self._device_info.get("id", "smart_irrigation_ai")
+                    await self.async_set_unique_id(f"smart_irrigation_{device_id}")
+                    self._abort_if_unique_id_configured()
+
+                    return await self.async_step_weather()
+            else:
+                # Direct API mode
+                return await self.async_step_api_key()
+
+        # Show mode selection
+        if rachio_available:
+            data_schema = vol.Schema({
+                vol.Required("use_ha_rachio", default=True): selector.BooleanSelector(
+                    selector.BooleanSelectorConfig()
+                ),
+            })
+
+            return self.async_show_form(
+                step_id="user",
+                data_schema=data_schema,
+                errors=errors,
+                description_placeholders={
+                    "rachio_status": "Rachio integration detected!",
+                },
+            )
+        else:
+            # No Rachio integration, go to API key
+            return await self.async_step_api_key()
+
+    async def _check_rachio_integration(self) -> bool:
+        """Check if Rachio integration is set up."""
+        entity_reg = er.async_get(self.hass)
+
+        for entity in entity_reg.entities.values():
+            if entity.platform == "rachio":
+                return True
+        return False
+
+    async def async_step_api_key(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle API key entry for direct Rachio API mode."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self._api_key = user_input[CONF_RACHIO_API_KEY]
+            self._use_ha_rachio = False
+
+            try:
+                from .rachio.api import RachioAPI
+                api = RachioAPI(api_key=self._api_key, hass=self.hass)
+
+                if not await api.async_verify_connection():
+                    errors["base"] = "invalid_api_key"
+                else:
+                    device_info = await api.async_get_device_info()
+                    zones = await api.async_get_zones()
+
+                    self._device_info = device_info
+                    self._zones = zones
+
+                    await self.async_set_unique_id(device_info.get("id"))
+                    self._abort_if_unique_id_configured()
+
+                    return await self.async_step_weather()
+
+            except Exception:
+                _LOGGER.exception("Error validating Rachio API")
+                errors["base"] = "unknown"
+
+        data_schema = vol.Schema({
+            vol.Required(CONF_RACHIO_API_KEY): str,
+        })
+
+        return self.async_show_form(
+            step_id="api_key",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "rachio_url": "https://app.rach.io/account/settings",
+            },
+        )
+
+    async def async_step_weather(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure weather entity."""
+        if user_input is not None:
+            self._weather_entity = user_input.get(CONF_WEATHER_ENTITY)
+            self._rain_sensor = user_input.get(CONF_RAIN_SENSOR)
+            return await self.async_step_schedule()
+
+        # Get available weather entities
+        weather_entities = [
+            state.entity_id
+            for state in self.hass.states.async_all("weather")
+        ]
+
+        # Get rain sensors (Rachio + external)
+        rain_sensor_options = []
+
+        # Add discovered Rachio rain sensors
+        for sensor in self._rain_sensors:
+            rain_sensor_options.append({
+                "value": sensor["entity_id"],
+                "label": f"{sensor['name']} (Rachio)",
+            })
+
+        # Add other rain/moisture binary sensors
+        for state in self.hass.states.async_all("binary_sensor"):
+            if "rain" in state.entity_id.lower():
+                if state.entity_id not in [s["entity_id"] for s in self._rain_sensors]:
+                    rain_sensor_options.append({
+                        "value": state.entity_id,
+                        "label": state.attributes.get("friendly_name", state.entity_id),
+                    })
+
+        data_schema = vol.Schema({
+            vol.Optional(CONF_WEATHER_ENTITY): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[{"value": e, "label": e} for e in weather_entities],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional(CONF_RAIN_SENSOR): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=rain_sensor_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ) if rain_sensor_options else vol.Optional(CONF_RAIN_SENSOR),
+        })
+
+        return self.async_show_form(
+            step_id="weather",
+            data_schema=data_schema,
+            description_placeholders={
+                "zone_count": str(len(self._zones)),
+            },
+        )
+
+    async def async_step_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure watering schedule."""
+        if user_input is not None:
+            self._watering_days = user_input.get(CONF_WATERING_DAYS, ["0", "2", "4", "6"])
+            self._start_time = user_input.get(CONF_WATERING_START_TIME, DEFAULT_START_TIME)
+            self._end_time = user_input.get(CONF_WATERING_END_TIME, DEFAULT_END_TIME)
+            self._max_runtime = user_input.get(CONF_MAX_DAILY_RUNTIME, DEFAULT_MAX_DAILY_RUNTIME)
+            self._cycle_soak = user_input.get(CONF_CYCLE_SOAK_ENABLED, True)
+
+            # Start zone configuration
+            self._current_zone_index = 0
+            if self._zones:
+                return await self.async_step_zone()
+            else:
+                return await self.async_step_moisture_sensors()
+
+        days_options = [
+            {"value": "0", "label": "Monday"},
+            {"value": "1", "label": "Tuesday"},
+            {"value": "2", "label": "Wednesday"},
+            {"value": "3", "label": "Thursday"},
+            {"value": "4", "label": "Friday"},
+            {"value": "5", "label": "Saturday"},
+            {"value": "6", "label": "Sunday"},
+        ]
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_WATERING_DAYS,
+                default=["0", "2", "4", "6"],
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=days_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                ),
+            ),
+            vol.Optional(
+                CONF_WATERING_START_TIME,
+                default=DEFAULT_START_TIME,
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_WATERING_END_TIME,
+                default=DEFAULT_END_TIME,
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_MAX_DAILY_RUNTIME,
+                default=DEFAULT_MAX_DAILY_RUNTIME,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10,
+                    max=480,
+                    step=5,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.BOX,
+                ),
+            ),
+            vol.Optional(
+                CONF_CYCLE_SOAK_ENABLED,
+                default=True,
+            ): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="schedule",
+            data_schema=data_schema,
+        )
+
+    async def async_step_zone(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure individual zone."""
+        if user_input is not None:
+            zone = self._zones[self._current_zone_index]
+
+            # Use entity_id for HA mode, zone id for API mode
+            zone_key = zone.get("entity_id") or zone.get("id")
+
+            self._zones_config[zone_key] = {
+                "name": zone.get("name", f"Zone {zone.get('zone_number', self._current_zone_index + 1)}"),
+                "entity_id": zone.get("entity_id"),
+                "zone_id": zone.get("id") or zone.get("zone_id"),
+                "zone_number": zone.get("zone_number", self._current_zone_index + 1),
+                "zone_type": user_input.get("zone_type", "cool_season_grass"),
+                "soil_type": user_input.get("soil_type", "loam"),
+                "slope": user_input.get("slope", "flat"),
+                "sun_exposure": user_input.get("sun_exposure", "full_sun"),
+                "nozzle_type": user_input.get("nozzle_type", "fixed_spray"),
+                "enabled": user_input.get("enabled", True),
+            }
+
+            self._current_zone_index += 1
+
+            if self._current_zone_index < len(self._zones):
+                return await self.async_step_zone()
+            else:
+                return await self.async_step_moisture_sensors()
+
+        zone = self._zones[self._current_zone_index]
+        zone_name = zone.get("name", f"Zone {zone.get('zone_number', self._current_zone_index + 1)}")
+
+        zone_type_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in ZONE_TYPES.items()
+        ]
+
+        soil_type_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in SOIL_TYPES.items()
+        ]
+
+        slope_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in SLOPE_TYPES.items()
+        ]
+
+        sun_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in SUN_EXPOSURE.items()
+        ]
+
+        nozzle_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in NOZZLE_TYPES.items()
+        ]
+
+        data_schema = vol.Schema({
+            vol.Optional("zone_type", default="cool_season_grass"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=zone_type_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional("soil_type", default="loam"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=soil_type_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional("slope", default="flat"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=slope_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional("sun_exposure", default="full_sun"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=sun_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional("nozzle_type", default="fixed_spray"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=nozzle_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional("enabled", default=True): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="zone",
+            data_schema=data_schema,
+            description_placeholders={
+                "zone_name": zone_name,
+                "zone_number": str(self._current_zone_index + 1),
+                "total_zones": str(len(self._zones)),
+            },
+        )
+
+    async def async_step_moisture_sensors(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure moisture sensors for zones."""
+        if user_input is not None:
+            self._moisture_sensors = {}
+            for zone_key in self._zones_config:
+                sensor_key = f"moisture_{zone_key}"
+                if sensor_key in user_input and user_input[sensor_key]:
+                    self._moisture_sensors[zone_key] = user_input[sensor_key]
+
+            return self._create_entry()
+
+        # Get available moisture sensors (Ecowitt and others)
+        moisture_sensors = []
+        for state in self.hass.states.async_all("sensor"):
+            entity_id = state.entity_id.lower()
+            if any(keyword in entity_id for keyword in ["moisture", "soil", "humidity"]):
+                # Skip weather-related humidity sensors
+                if "weather" not in entity_id and "indoor" not in entity_id:
+                    moisture_sensors.append({
+                        "value": state.entity_id,
+                        "label": state.attributes.get("friendly_name", state.entity_id),
+                    })
+
+        if not moisture_sensors:
+            # No sensors found, skip this step
+            self._moisture_sensors = {}
+            return self._create_entry()
+
+        # Build schema with optional sensor for each zone
+        schema_dict = {}
+        for zone_key, zone_config in self._zones_config.items():
+            zone_name = zone_config.get("name", zone_key)
+
+            options = [{"value": "", "label": "None (use AI estimates)"}] + moisture_sensors
+
+            schema_dict[vol.Optional(f"moisture_{zone_key}")] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            )
+
+        data_schema = vol.Schema(schema_dict)
+
+        return self.async_show_form(
+            step_id="moisture_sensors",
+            data_schema=data_schema,
+            description_placeholders={
+                "sensor_count": str(len(moisture_sensors)),
+            },
+        )
+
+    def _create_entry(self) -> FlowResult:
+        """Create the config entry."""
+        data = {
+            CONF_USE_HA_RACHIO: self._use_ha_rachio,
+            CONF_RACHIO_API_KEY: self._api_key if not self._use_ha_rachio else None,
+            CONF_WEATHER_ENTITY: getattr(self, '_weather_entity', None),
+            CONF_RAIN_SENSOR: getattr(self, '_rain_sensor', None),
+            CONF_WATERING_DAYS: [int(d) for d in getattr(self, '_watering_days', ["0", "2", "4", "6"])],
+            CONF_WATERING_START_TIME: getattr(self, '_start_time', DEFAULT_START_TIME),
+            CONF_WATERING_END_TIME: getattr(self, '_end_time', DEFAULT_END_TIME),
+            CONF_MAX_DAILY_RUNTIME: getattr(self, '_max_runtime', DEFAULT_MAX_DAILY_RUNTIME),
+            CONF_CYCLE_SOAK_ENABLED: getattr(self, '_cycle_soak', True),
+            CONF_ZONES: self._zones_config,
+            CONF_MOISTURE_SENSORS: getattr(self, '_moisture_sensors', {}),
+        }
+
+        title = self._device_info.get("name", "Smart Irrigation AI")
+        if self._use_ha_rachio:
+            title = f"{title} (via HA Rachio)"
+
+        return self.async_create_entry(
+            title=title,
+            data=data,
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return SmartIrrigationOptionsFlow(config_entry)
+
+
+class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
+    """Handle options flow for Smart Irrigation AI."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle options flow."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        data = self.config_entry.data
+
+        days_options = [
+            {"value": "0", "label": "Monday"},
+            {"value": "1", "label": "Tuesday"},
+            {"value": "2", "label": "Wednesday"},
+            {"value": "3", "label": "Thursday"},
+            {"value": "4", "label": "Friday"},
+            {"value": "5", "label": "Saturday"},
+            {"value": "6", "label": "Sunday"},
+        ]
+
+        current_days = [str(d) for d in data.get(CONF_WATERING_DAYS, [0, 2, 4, 6])]
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_WATERING_DAYS,
+                default=current_days,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=days_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                ),
+            ),
+            vol.Optional(
+                CONF_WATERING_START_TIME,
+                default=data.get(CONF_WATERING_START_TIME, DEFAULT_START_TIME),
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_WATERING_END_TIME,
+                default=data.get(CONF_WATERING_END_TIME, DEFAULT_END_TIME),
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_MAX_DAILY_RUNTIME,
+                default=data.get(CONF_MAX_DAILY_RUNTIME, DEFAULT_MAX_DAILY_RUNTIME),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10,
+                    max=480,
+                    step=5,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.BOX,
+                ),
+            ),
+            vol.Optional(
+                CONF_CYCLE_SOAK_ENABLED,
+                default=data.get(CONF_CYCLE_SOAK_ENABLED, True),
+            ): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=data_schema,
+        )

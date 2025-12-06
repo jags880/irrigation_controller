@@ -1,0 +1,57 @@
+run_zone:
+  name: Run Zone
+  description: Start a specific irrigation zone
+  fields:
+    zone_id:
+      name: Zone ID
+      description: The ID of the zone to run
+      required: true
+      selector:
+        text:
+    duration:
+      name: Duration
+      description: Duration in minutes (leave empty for AI recommendation)
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 180
+          unit_of_measurement: minutes
+
+stop_all:
+  name: Stop All Zones
+  description: Stop all currently running zones
+
+calculate_schedule:
+  name: Calculate Schedule
+  description: Recalculate the irrigation schedule based on current conditions
+
+force_recalculate:
+  name: Force Recalculate
+  description: Force a complete recalculation of all zones and schedule
+
+skip_next_watering:
+  name: Skip Next Watering
+  description: Skip the next scheduled watering run
+  fields:
+    zone_id:
+      name: Zone ID
+      description: Specific zone to skip (leave empty to skip all)
+      required: false
+      selector:
+        text:
+
+rain_delay:
+  name: Rain Delay
+  description: Set a rain delay
+  fields:
+    hours:
+      name: Hours
+      description: Number of hours to delay watering
+      required: false
+      default: 24
+      selector:
+        number:
+          min: 1
+          max: 168
+          unit_of_measurement: hours
