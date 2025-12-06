@@ -23,9 +23,9 @@ from .const import (
     SERVICE_RAIN_DELAY,
     CONF_RACHIO_API_KEY,
     CONF_ZONES,
+    CONF_USE_HA_RACHIO,
 )
 from .coordinator import SmartIrrigationCoordinator
-from .rachio.api import RachioAPI
 from .ai.irrigation_model import IrrigationAIModel
 from .scheduling.scheduler import SmartScheduler
 
@@ -51,20 +51,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Smart Irrigation AI from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Initialize Rachio API client
-    rachio_api = RachioAPI(
-        api_key=entry.data[CONF_RACHIO_API_KEY],
-        hass=hass,
-    )
+    use_ha_rachio = entry.data.get(CONF_USE_HA_RACHIO, True)
+    zones_info = []
+    device_info = {}
 
-    # Verify API connection
-    if not await rachio_api.async_verify_connection():
-        _LOGGER.error("Failed to connect to Rachio API")
-        return False
+    if use_ha_rachio:
+        # Use Home Assistant's Rachio integration
+        from .rachio.ha_controller import HAZoneController
 
-    # Get device and zone information from Rachio
-    device_info = await rachio_api.async_get_device_info()
-    zones_info = await rachio_api.async_get_zones()
+        controller = HAZoneController(hass)
+        discovery = await controller.async_discover_rachio_entities()
+
+        if not discovery.get("zones"):
+            _LOGGER.error("No Rachio zones found in Home Assistant")
+            return False
+
+        device_info = discovery.get("device_info", {})
+        zones_info = discovery.get("zones", [])
+
+        # Create a wrapper that matches the API interface
+        rachio_controller = controller
+
+        _LOGGER.info(
+            "Using Home Assistant Rachio integration with %d zones",
+            len(zones_info),
+        )
+
+    else:
+        # Use direct Rachio API
+        from .rachio.api import RachioAPI
+
+        api_key = entry.data.get(CONF_RACHIO_API_KEY)
+        if not api_key:
+            _LOGGER.error("No Rachio API key configured")
+            return False
+
+        rachio_api = RachioAPI(api_key=api_key, hass=hass)
+
+        if not await rachio_api.async_verify_connection():
+            _LOGGER.error("Failed to connect to Rachio API")
+            return False
+
+        device_info = await rachio_api.async_get_device_info()
+        zones_info = await rachio_api.async_get_zones()
+
+        rachio_controller = rachio_api
+
+        _LOGGER.info(
+            "Using direct Rachio API with %d zones",
+            len(zones_info),
+        )
 
     # Initialize AI model
     ai_model = IrrigationAIModel(
@@ -73,32 +109,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         zones_config=entry.data.get(CONF_ZONES, {}),
     )
 
-    # Initialize scheduler
+    # Initialize scheduler with the appropriate controller
     scheduler = SmartScheduler(
         hass=hass,
         config=entry.data,
-        rachio_api=rachio_api,
+        rachio_api=rachio_controller,
         ai_model=ai_model,
+        use_ha_rachio=use_ha_rachio,
     )
 
     # Create coordinator
     coordinator = SmartIrrigationCoordinator(
         hass=hass,
         entry=entry,
-        rachio_api=rachio_api,
+        rachio_api=rachio_controller,
         ai_model=ai_model,
         scheduler=scheduler,
         update_interval=timedelta(minutes=SCAN_INTERVAL_MINUTES),
+        use_ha_rachio=use_ha_rachio,
     )
 
     # Store instances
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
-        "rachio_api": rachio_api,
+        "rachio_api": rachio_controller,
         "ai_model": ai_model,
         "scheduler": scheduler,
         "device_info": device_info,
         "zones_info": zones_info,
+        "use_ha_rachio": use_ha_rachio,
     }
 
     # Register device
@@ -156,10 +195,11 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Register services for Smart Irrigation AI."""
     data = hass.data[DOMAIN][entry.entry_id]
-    rachio_api = data["rachio_api"]
+    rachio_controller = data["rachio_api"]
     scheduler = data["scheduler"]
     ai_model = data["ai_model"]
     coordinator = data["coordinator"]
+    use_ha_rachio = data.get("use_ha_rachio", True)
 
     async def handle_run_zone(call: ServiceCall) -> None:
         """Handle run_zone service call."""
@@ -170,12 +210,17 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             # Get AI-recommended duration
             duration = await ai_model.async_get_recommended_duration(zone_id)
 
-        await rachio_api.async_run_zone(zone_id, duration * 60)  # Convert to seconds
+        if use_ha_rachio:
+            # zone_id is the entity_id when using HA Rachio
+            await rachio_controller.async_run_zone(zone_id, duration)
+        else:
+            await rachio_controller.async_run_zone(zone_id, duration * 60)  # Convert to seconds
+
         await coordinator.async_request_refresh()
 
     async def handle_stop_all(call: ServiceCall) -> None:
         """Handle stop_all service call."""
-        await rachio_api.async_stop_all()
+        await rachio_controller.async_stop_all()
         await coordinator.async_request_refresh()
 
     async def handle_calculate_schedule(call: ServiceCall) -> None:

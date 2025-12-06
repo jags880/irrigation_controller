@@ -58,18 +58,38 @@ Configure each zone with:
 ### Prerequisites
 
 1. **Rachio Controller**: You need a Rachio irrigation controller
-2. **Rachio API Key**: Get your API key from https://app.rach.io/account/settings
-3. **Weather Entity**: A weather integration (e.g., OpenWeatherMap, Home Assistant Weather)
-4. **Optional**: Soil moisture sensors (Ecowitt recommended)
+2. **Home Assistant Rachio Integration** (Recommended): Set up the official [Rachio integration](https://www.home-assistant.io/integrations/rachio/) first
+3. **OR Rachio API Key**: If not using the HA integration, get your API key from https://app.rach.io/account/settings
+4. **Weather Entity**: A weather integration (e.g., OpenWeatherMap, Home Assistant Weather)
+5. **Optional**: Soil moisture sensors (Ecowitt recommended)
+
+### Two Integration Modes
+
+#### Mode 1: Using Home Assistant Rachio Integration (Recommended)
+
+If you already have the Rachio integration set up in Home Assistant:
+- **Automatic zone discovery** from existing Rachio entities
+- **No duplicate API calls** - uses HA services to control zones
+- **Leverages existing rain sensor** entities
+- Works with your existing Rachio entities
+
+#### Mode 2: Direct Rachio API
+
+If you don't have the Rachio HA integration:
+- Connect directly using your Rachio API key
+- Manages API calls independently
+- Full feature set available
 
 ### Setup
 
 1. Go to **Settings** → **Devices & Services** → **Add Integration**
 2. Search for "Smart Irrigation AI"
-3. Enter your Rachio API key
+3. Choose integration mode:
+   - If Rachio integration detected: Choose "Use Home Assistant Rachio Integration" (recommended)
+   - Otherwise: Enter your Rachio API key
 4. Select your weather entity and optional rain sensor
 5. Configure your watering schedule (days, time window)
-6. Configure each zone's characteristics
+6. Configure each zone's characteristics (vegetation, soil, slope, sun, sprinkler type)
 7. Optionally assign moisture sensors to zones
 
 ## Entities Created

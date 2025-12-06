@@ -25,6 +25,7 @@ class SmartIrrigationCoordinator(DataUpdateCoordinator):
         ai_model,
         scheduler,
         update_interval: timedelta,
+        use_ha_rachio: bool = True,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -37,6 +38,7 @@ class SmartIrrigationCoordinator(DataUpdateCoordinator):
         self.rachio_api = rachio_api
         self.ai_model = ai_model
         self.scheduler = scheduler
+        self.use_ha_rachio = use_ha_rachio
         self._zones_data: dict[str, Any] = {}
         self._device_data: dict[str, Any] = {}
         self._weather_data: dict[str, Any] = {}
@@ -47,11 +49,14 @@ class SmartIrrigationCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from all sources."""
         try:
-            # Fetch Rachio device status
-            self._device_data = await self.rachio_api.async_get_device_status()
-
-            # Fetch zone statuses
-            self._zones_data = await self.rachio_api.async_get_zones_status()
+            if self.use_ha_rachio:
+                # Using Home Assistant Rachio integration
+                self._device_data = await self.rachio_api.async_get_device_state()
+                self._zones_data = await self.rachio_api.async_get_all_zones_status()
+            else:
+                # Using direct Rachio API
+                self._device_data = await self.rachio_api.async_get_device_status()
+                self._zones_data = await self.rachio_api.async_get_zones_status()
 
             # Get weather data from configured weather entity
             self._weather_data = await self._async_get_weather_data()
@@ -141,7 +146,7 @@ class SmartIrrigationCoordinator(DataUpdateCoordinator):
 
     async def _async_get_rain_sensor_data(self) -> dict[str, Any]:
         """Get rain sensor data from Rachio or configured sensor."""
-        # First try to get from Rachio device
+        # Get from controller (works for both modes)
         rain_sensor = await self.rachio_api.async_get_rain_sensor_status()
 
         # Also check for configured external rain sensor
@@ -149,8 +154,10 @@ class SmartIrrigationCoordinator(DataUpdateCoordinator):
         if external_rain_sensor:
             state = self.hass.states.get(external_rain_sensor)
             if state:
+                from homeassistant.const import STATE_ON
                 rain_sensor["external"] = {
                     "state": state.state,
+                    "tripped": state.state == STATE_ON,
                     "value": state.attributes.get("rain_rate") or state.attributes.get("precipitation"),
                     "last_updated": state.last_updated.isoformat() if state.last_updated else None,
                 }

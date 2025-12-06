@@ -29,19 +29,22 @@ class SmartScheduler:
         config: dict[str, Any],
         rachio_api,
         ai_model,
+        use_ha_rachio: bool = True,
     ) -> None:
         """Initialize the scheduler.
 
         Args:
             hass: Home Assistant instance
             config: Integration configuration
-            rachio_api: Rachio API client
+            rachio_api: Rachio API client or HA controller
             ai_model: AI irrigation model
+            use_ha_rachio: Whether using HA Rachio integration
         """
         self.hass = hass
         self.config = config
         self.rachio_api = rachio_api
         self.ai_model = ai_model
+        self.use_ha_rachio = use_ha_rachio
 
         # Parse configuration
         self._watering_days = config.get("watering_days", DEFAULT_WATERING_DAYS)

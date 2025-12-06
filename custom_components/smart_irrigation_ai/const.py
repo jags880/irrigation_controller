@@ -19,6 +19,7 @@ CONF_WATERING_START_TIME: Final = "watering_start_time"
 CONF_WATERING_END_TIME: Final = "watering_end_time"
 CONF_MAX_DAILY_RUNTIME: Final = "max_daily_runtime"
 CONF_CYCLE_SOAK_ENABLED: Final = "cycle_soak_enabled"
+CONF_USE_HA_RACHIO: Final = "use_ha_rachio"
 
 # Zone configuration
 CONF_ZONE_ID: Final = "zone_id"

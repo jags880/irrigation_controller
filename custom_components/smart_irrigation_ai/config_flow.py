@@ -10,7 +10,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     DOMAIN,
@@ -24,6 +24,7 @@ from .const import (
     CONF_MAX_DAILY_RUNTIME,
     CONF_CYCLE_SOAK_ENABLED,
     CONF_ZONES,
+    CONF_USE_HA_RACHIO,
     ZONE_TYPES,
     SOIL_TYPES,
     SLOPE_TYPES,
@@ -33,30 +34,15 @@ from .const import (
     DEFAULT_START_TIME,
     DEFAULT_END_TIME,
 )
-from .rachio.api import RachioAPI
+from .rachio.ha_controller import HAZoneController
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema({
-    vol.Required(CONF_RACHIO_API_KEY): str,
-})
 
-
-async def validate_rachio_api(hass: HomeAssistant, api_key: str) -> dict[str, Any]:
-    """Validate the Rachio API key and get device info."""
-    api = RachioAPI(api_key=api_key, hass=hass)
-
-    if not await api.async_verify_connection():
-        raise ValueError("Failed to connect to Rachio API")
-
-    device_info = await api.async_get_device_info()
-    zones = await api.async_get_zones()
-
-    return {
-        "device_name": device_info.get("name", "Rachio Controller"),
-        "device_id": device_info.get("id"),
-        "zones": zones,
-    }
+async def discover_rachio_zones(hass: HomeAssistant) -> dict[str, Any]:
+    """Discover Rachio zones from Home Assistant integration."""
+    controller = HAZoneController(hass)
+    return await controller.async_discover_rachio_entities()
 
 
 class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -66,40 +52,114 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize the config flow."""
+        self._use_ha_rachio: bool = True
         self._api_key: str | None = None
         self._device_info: dict[str, Any] = {}
         self._zones: list[dict[str, Any]] = []
         self._zones_config: dict[str, dict[str, Any]] = {}
         self._current_zone_index = 0
+        self._rain_sensors: list[dict[str, Any]] = []
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step - Rachio API key."""
+        """Handle the initial step - choose integration mode."""
+        errors: dict[str, str] = {}
+
+        # Check if Rachio integration is available
+        rachio_available = await self._check_rachio_integration()
+
+        if user_input is not None:
+            self._use_ha_rachio = user_input.get("use_ha_rachio", True)
+
+            if self._use_ha_rachio:
+                # Discover existing Rachio entities
+                discovery = await discover_rachio_zones(self.hass)
+                self._zones = discovery.get("zones", [])
+                self._device_info = discovery.get("device_info", {})
+                self._rain_sensors = discovery.get("rain_sensors", [])
+
+                if not self._zones:
+                    errors["base"] = "no_rachio_zones"
+                else:
+                    # Set unique ID based on device
+                    device_id = self._device_info.get("id", "smart_irrigation_ai")
+                    await self.async_set_unique_id(f"smart_irrigation_{device_id}")
+                    self._abort_if_unique_id_configured()
+
+                    return await self.async_step_weather()
+            else:
+                # Direct API mode
+                return await self.async_step_api_key()
+
+        # Show mode selection
+        if rachio_available:
+            data_schema = vol.Schema({
+                vol.Required("use_ha_rachio", default=True): selector.BooleanSelector(
+                    selector.BooleanSelectorConfig()
+                ),
+            })
+
+            return self.async_show_form(
+                step_id="user",
+                data_schema=data_schema,
+                errors=errors,
+                description_placeholders={
+                    "rachio_status": "Rachio integration detected!",
+                },
+            )
+        else:
+            # No Rachio integration, go to API key
+            return await self.async_step_api_key()
+
+    async def _check_rachio_integration(self) -> bool:
+        """Check if Rachio integration is set up."""
+        entity_reg = er.async_get(self.hass)
+
+        for entity in entity_reg.entities.values():
+            if entity.platform == "rachio":
+                return True
+        return False
+
+    async def async_step_api_key(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle API key entry for direct Rachio API mode."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            self._api_key = user_input[CONF_RACHIO_API_KEY]
+            self._use_ha_rachio = False
+
             try:
-                info = await validate_rachio_api(self.hass, user_input[CONF_RACHIO_API_KEY])
-                self._api_key = user_input[CONF_RACHIO_API_KEY]
-                self._device_info = info
-                self._zones = info["zones"]
+                from .rachio.api import RachioAPI
+                api = RachioAPI(api_key=self._api_key, hass=self.hass)
 
-                # Check if already configured
-                await self.async_set_unique_id(info["device_id"])
-                self._abort_if_unique_id_configured()
+                if not await api.async_verify_connection():
+                    errors["base"] = "invalid_api_key"
+                else:
+                    device_info = await api.async_get_device_info()
+                    zones = await api.async_get_zones()
 
-                return await self.async_step_weather()
+                    self._device_info = device_info
+                    self._zones = zones
 
-            except ValueError:
-                errors["base"] = "invalid_api_key"
+                    await self.async_set_unique_id(device_info.get("id"))
+                    self._abort_if_unique_id_configured()
+
+                    return await self.async_step_weather()
+
             except Exception:
-                _LOGGER.exception("Unexpected error validating Rachio API")
+                _LOGGER.exception("Error validating Rachio API")
                 errors["base"] = "unknown"
 
+        data_schema = vol.Schema({
+            vol.Required(CONF_RACHIO_API_KEY): str,
+        })
+
         return self.async_show_form(
-            step_id="user",
-            data_schema=STEP_USER_DATA_SCHEMA,
+            step_id="api_key",
+            data_schema=data_schema,
             errors=errors,
             description_placeholders={
                 "rachio_url": "https://app.rach.io/account/settings",
@@ -121,31 +181,46 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             for state in self.hass.states.async_all("weather")
         ]
 
-        # Get available rain sensors
-        rain_sensors = [
-            state.entity_id
-            for state in self.hass.states.async_all("binary_sensor")
-            if "rain" in state.entity_id.lower() or "moisture" in state.entity_id.lower()
-        ]
+        # Get rain sensors (Rachio + external)
+        rain_sensor_options = []
+
+        # Add discovered Rachio rain sensors
+        for sensor in self._rain_sensors:
+            rain_sensor_options.append({
+                "value": sensor["entity_id"],
+                "label": f"{sensor['name']} (Rachio)",
+            })
+
+        # Add other rain/moisture binary sensors
+        for state in self.hass.states.async_all("binary_sensor"):
+            if "rain" in state.entity_id.lower():
+                if state.entity_id not in [s["entity_id"] for s in self._rain_sensors]:
+                    rain_sensor_options.append({
+                        "value": state.entity_id,
+                        "label": state.attributes.get("friendly_name", state.entity_id),
+                    })
 
         data_schema = vol.Schema({
             vol.Optional(CONF_WEATHER_ENTITY): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=weather_entities,
+                    options=[{"value": e, "label": e} for e in weather_entities],
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 ),
             ),
             vol.Optional(CONF_RAIN_SENSOR): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=rain_sensors,
+                    options=rain_sensor_options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 ),
-            ),
+            ) if rain_sensor_options else vol.Optional(CONF_RAIN_SENSOR),
         })
 
         return self.async_show_form(
             step_id="weather",
             data_schema=data_schema,
+            description_placeholders={
+                "zone_count": str(len(self._zones)),
+            },
         )
 
     async def async_step_schedule(
@@ -153,7 +228,7 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Configure watering schedule."""
         if user_input is not None:
-            self._watering_days = user_input.get(CONF_WATERING_DAYS, [0, 2, 4, 6])
+            self._watering_days = user_input.get(CONF_WATERING_DAYS, ["0", "2", "4", "6"])
             self._start_time = user_input.get(CONF_WATERING_START_TIME, DEFAULT_START_TIME)
             self._end_time = user_input.get(CONF_WATERING_END_TIME, DEFAULT_END_TIME)
             self._max_runtime = user_input.get(CONF_MAX_DAILY_RUNTIME, DEFAULT_MAX_DAILY_RUNTIME)
@@ -224,10 +299,15 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Configure individual zone."""
         if user_input is not None:
             zone = self._zones[self._current_zone_index]
-            zone_id = zone["id"]
 
-            self._zones_config[zone_id] = {
+            # Use entity_id for HA mode, zone id for API mode
+            zone_key = zone.get("entity_id") or zone.get("id")
+
+            self._zones_config[zone_key] = {
                 "name": zone.get("name", f"Zone {zone.get('zone_number', self._current_zone_index + 1)}"),
+                "entity_id": zone.get("entity_id"),
+                "zone_id": zone.get("id") or zone.get("zone_id"),
+                "zone_number": zone.get("zone_number", self._current_zone_index + 1),
                 "zone_type": user_input.get("zone_type", "cool_season_grass"),
                 "soil_type": user_input.get("soil_type", "loam"),
                 "slope": user_input.get("slope", "flat"),
@@ -321,19 +401,24 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Configure moisture sensors for zones."""
         if user_input is not None:
             self._moisture_sensors = {}
-            for zone in self._zones:
-                zone_id = zone["id"]
-                sensor_key = f"moisture_{zone_id}"
+            for zone_key in self._zones_config:
+                sensor_key = f"moisture_{zone_key}"
                 if sensor_key in user_input and user_input[sensor_key]:
-                    self._moisture_sensors[zone_id] = user_input[sensor_key]
+                    self._moisture_sensors[zone_key] = user_input[sensor_key]
 
             return self._create_entry()
 
         # Get available moisture sensors (Ecowitt and others)
         moisture_sensors = []
         for state in self.hass.states.async_all("sensor"):
-            if any(keyword in state.entity_id.lower() for keyword in ["moisture", "soil", "humidity"]):
-                moisture_sensors.append(state.entity_id)
+            entity_id = state.entity_id.lower()
+            if any(keyword in entity_id for keyword in ["moisture", "soil", "humidity"]):
+                # Skip weather-related humidity sensors
+                if "weather" not in entity_id and "indoor" not in entity_id:
+                    moisture_sensors.append({
+                        "value": state.entity_id,
+                        "label": state.attributes.get("friendly_name", state.entity_id),
+                    })
 
         if not moisture_sensors:
             # No sensors found, skip this step
@@ -342,15 +427,14 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Build schema with optional sensor for each zone
         schema_dict = {}
-        for zone in self._zones:
-            zone_id = zone["id"]
-            zone_name = zone.get("name", f"Zone {zone.get('zone_number', '?')}")
+        for zone_key, zone_config in self._zones_config.items():
+            zone_name = zone_config.get("name", zone_key)
 
-            schema_dict[vol.Optional(f"moisture_{zone_id}")] = selector.SelectSelector(
+            options = [{"value": "", "label": "None (use AI estimates)"}] + moisture_sensors
+
+            schema_dict[vol.Optional(f"moisture_{zone_key}")] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=[{"value": "", "label": "None"}] + [
-                        {"value": s, "label": s} for s in moisture_sensors
-                    ],
+                    options=options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 ),
             )
@@ -368,10 +452,11 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _create_entry(self) -> FlowResult:
         """Create the config entry."""
         data = {
-            CONF_RACHIO_API_KEY: self._api_key,
+            CONF_USE_HA_RACHIO: self._use_ha_rachio,
+            CONF_RACHIO_API_KEY: self._api_key if not self._use_ha_rachio else None,
             CONF_WEATHER_ENTITY: getattr(self, '_weather_entity', None),
             CONF_RAIN_SENSOR: getattr(self, '_rain_sensor', None),
-            CONF_WATERING_DAYS: [int(d) for d in getattr(self, '_watering_days', [0, 2, 4, 6])],
+            CONF_WATERING_DAYS: [int(d) for d in getattr(self, '_watering_days', ["0", "2", "4", "6"])],
             CONF_WATERING_START_TIME: getattr(self, '_start_time', DEFAULT_START_TIME),
             CONF_WATERING_END_TIME: getattr(self, '_end_time', DEFAULT_END_TIME),
             CONF_MAX_DAILY_RUNTIME: getattr(self, '_max_runtime', DEFAULT_MAX_DAILY_RUNTIME),
@@ -380,8 +465,12 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MOISTURE_SENSORS: getattr(self, '_moisture_sensors', {}),
         }
 
+        title = self._device_info.get("name", "Smart Irrigation AI")
+        if self._use_ha_rachio:
+            title = f"{title} (via HA Rachio)"
+
         return self.async_create_entry(
-            title=self._device_info.get("device_name", "Smart Irrigation AI"),
+            title=title,
             data=data,
         )
 
@@ -408,7 +497,6 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        options = self.config_entry.options
         data = self.config_entry.data
 
         days_options = [
