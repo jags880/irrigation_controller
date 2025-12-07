@@ -35,8 +35,13 @@ async def async_setup_entry(
 
     # Zone-specific adjustments
     for zone in zones_info:
-        zone_id = zone.get("id")
+        zone_id = zone.get("zone_id") or zone.get("entity_id")
         zone_name = zone.get("name", f"Zone {zone.get('zone_number', '?')}")
+
+        # Skip zones without valid ID
+        if not zone_id:
+            _LOGGER.warning("Skipping zone number entity creation - no valid zone ID: %s", zone)
+            continue
 
         entities.append(
             ZoneDurationAdjustmentNumber(coordinator, entry, zone_id, zone_name)

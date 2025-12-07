@@ -38,9 +38,14 @@ async def async_setup_entry(
 
     # Zone switches
     for zone in zones_info:
-        zone_id = zone.get("id")
+        zone_id = zone.get("zone_id") or zone.get("entity_id")
         zone_name = zone.get("name", f"Zone {zone.get('zone_number', '?')}")
         zone_number = zone.get("zone_number", 0)
+
+        # Skip zones without valid ID
+        if not zone_id:
+            _LOGGER.warning("Skipping zone switch creation - no valid zone ID: %s", zone)
+            continue
 
         entities.append(
             ZoneSwitch(coordinator, entry, rachio_api, scheduler, zone_id, zone_name, zone_number)

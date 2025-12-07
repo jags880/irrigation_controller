@@ -1,6 +1,7 @@
 """Smart Irrigation AI - Intelligent irrigation control for Home Assistant."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -61,10 +62,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Use Home Assistant's Rachio integration
     controller = HAZoneController(hass)
-    discovery = await controller.async_discover_rachio_entities()
 
-    if not discovery.get("zones"):
-        _LOGGER.error("No Rachio zones found in Home Assistant")
+    # Retry zone discovery with delays to handle startup race conditions
+    # The Rachio integration may not be fully loaded yet
+    discovery = None
+    max_retries = 5
+    retry_delay = 2  # seconds
+
+    for attempt in range(max_retries):
+        discovery = await controller.async_discover_rachio_entities()
+        if discovery.get("zones"):
+            break
+        if attempt < max_retries - 1:
+            _LOGGER.debug(
+                "No Rachio zones found (attempt %d/%d), retrying in %ds...",
+                attempt + 1, max_retries, retry_delay
+            )
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 10)  # Exponential backoff, max 10s
+
+    if not discovery or not discovery.get("zones"):
+        _LOGGER.error(
+            "No Rachio zones found in Home Assistant after %d attempts. "
+            "Ensure the Rachio integration is set up and has zones configured.",
+            max_retries
+        )
         return False
 
     device_info = discovery.get("device_info", {})
