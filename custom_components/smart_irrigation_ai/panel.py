@@ -16,7 +16,8 @@ PANEL_TITLE = "Smart Irrigation"
 PANEL_ICON = "mdi:sprinkler-variant"
 PANEL_NAME = "smart-irrigation-panel"
 PANEL_URL_PATH = "smart-irrigation"
-STATIC_PATH = f"/local/{DOMAIN}"
+# Use hacsfiles path pattern - this is the standard for HACS integrations
+STATIC_PATH = f"/hacsfiles/{DOMAIN}"
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
@@ -31,8 +32,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
 
     _LOGGER.info("Registering panel from: %s", panel_path)
 
-    # Register static path for serving the panel JS using local/ prefix
-    # This makes it accessible at /local/smart_irrigation_ai/
+    # Register static path for serving the panel JS
+    # Using hacsfiles pattern which is standard for HACS integrations
     try:
         hass.http.register_static_path(
             STATIC_PATH,
