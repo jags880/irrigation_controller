@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..const import (
@@ -37,7 +37,7 @@ class WeatherProcessor:
         self._current_weather = current_weather
         if forecast:
             self._forecast = forecast
-        self._last_update = datetime.now()
+        self._last_update = datetime.now(timezone.utc)
 
     @property
     def current_temperature(self) -> float | None:
@@ -75,7 +75,7 @@ class WeatherProcessor:
     def get_precipitation_next_24h(self) -> float:
         """Get forecasted precipitation for next 24 hours (inches)."""
         total = 0.0
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         cutoff = now + timedelta(hours=24)
 
         for forecast in self._forecast:
@@ -96,7 +96,7 @@ class WeatherProcessor:
     def get_precipitation_probability_next_24h(self) -> float:
         """Get average precipitation probability for next 24 hours."""
         probabilities = []
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         cutoff = now + timedelta(hours=24)
 
         for forecast in self._forecast:
@@ -118,7 +118,7 @@ class WeatherProcessor:
     def get_temperature_range_next_24h(self) -> tuple[float | None, float | None]:
         """Get min and max temperature forecast for next 24 hours."""
         temps = []
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         cutoff = now + timedelta(hours=24)
 
         for forecast in self._forecast:

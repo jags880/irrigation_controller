@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections import deque
 
@@ -120,10 +120,10 @@ class SoilAnalyzer:
 
             self._zone_history[zone_id].append({
                 "value": moisture_value,
-                "timestamp": timestamp or datetime.now(),
+                "timestamp": timestamp or datetime.now(timezone.utc),
             })
 
-        self._last_update = datetime.now()
+        self._last_update = datetime.now(timezone.utc)
 
     def update_all_moisture(self, moisture_data: dict[str, dict[str, Any]]) -> None:
         """Update moisture for all zones from coordinator data.
@@ -229,7 +229,7 @@ class SoilAnalyzer:
             return "unknown"
 
         # Get readings within the time window
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         recent_readings = [
             r for r in history
             if r["timestamp"] >= cutoff
@@ -411,7 +411,7 @@ class RainSensorProcessor:
             rain_delay_expires: When rain delay expires (ISO format)
         """
         if tripped and not self._tripped:
-            self._trip_time = datetime.now()
+            self._trip_time = datetime.now(timezone.utc)
 
         self._tripped = tripped
         self._external_rain_rate = external_rain_rate
@@ -466,7 +466,7 @@ class RainSensorProcessor:
         """
         if not self.is_raining:
             # Check if rain delay is active
-            if self._rain_delay_expires and self._rain_delay_expires > datetime.now():
+            if self._rain_delay_expires and self._rain_delay_expires > datetime.now(timezone.utc):
                 return 0.0
 
             return 1.0
@@ -488,7 +488,7 @@ class RainSensorProcessor:
             return None
 
         if self._trip_time:
-            return datetime.now() - self._trip_time
+            return datetime.now(timezone.utc) - self._trip_time
 
         return None
 
@@ -504,8 +504,8 @@ class RainSensorProcessor:
         if self.rain_intensity == "moderate":
             return True, "Moderate rain detected"
 
-        if self._rain_delay_expires and self._rain_delay_expires > datetime.now():
-            remaining = self._rain_delay_expires - datetime.now()
+        if self._rain_delay_expires and self._rain_delay_expires > datetime.now(timezone.utc):
+            remaining = self._rain_delay_expires - datetime.now(timezone.utc)
             return True, f"Rain delay active ({remaining.seconds // 3600}h remaining)"
 
         return False, ""
@@ -518,7 +518,7 @@ class RainSensorProcessor:
             "intensity": self.rain_intensity,
             "external_rain_rate": self._external_rain_rate,
             "rain_factor": self.get_rain_factor(),
-            "rain_delay_active": self._rain_delay_expires is not None and self._rain_delay_expires > datetime.now(),
+            "rain_delay_active": self._rain_delay_expires is not None and self._rain_delay_expires > datetime.now(timezone.utc),
             "rain_delay_expires": self._rain_delay_expires.isoformat() if self._rain_delay_expires else None,
-            "time_since_trip": str(datetime.now() - self._trip_time) if self._trip_time else None,
+            "time_since_trip": str(datetime.now(timezone.utc) - self._trip_time) if self._trip_time else None,
         }

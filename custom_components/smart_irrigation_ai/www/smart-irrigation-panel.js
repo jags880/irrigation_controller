@@ -8,11 +8,35 @@
  * - Watering calendar with history and schedule
  */
 
-import {
-  LitElement,
-  html,
-  css,
-} from "https://unpkg.com/lit-element@2.4.0/lit-element.js?module";
+// Try to use lit from Home Assistant's built-in modules first
+let LitElement, html, css;
+
+try {
+  // Home Assistant 2023.4+ includes lit in the frontend
+  const lit = await import("/frontend_latest/core.js").catch(() => null);
+  if (lit) {
+    LitElement = lit.LitElement;
+    html = lit.html;
+    css = lit.css;
+  }
+} catch (e) {
+  // Fallback: try direct lit import
+}
+
+if (!LitElement) {
+  try {
+    const litModule = await import("https://unpkg.com/lit@2.7.0/index.js?module");
+    LitElement = litModule.LitElement;
+    html = litModule.html;
+    css = litModule.css;
+  } catch (e) {
+    // Fallback to lit-element 2.x
+    const litElement = await import("https://unpkg.com/lit-element@2.5.1/lit-element.js?module");
+    LitElement = litElement.LitElement;
+    html = litElement.html;
+    css = litElement.css;
+  }
+}
 
 const DOMAIN = "smart_irrigation_ai";
 

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from homeassistant.core import HomeAssistant
 from homeassistant.components.frontend import async_register_built_in_panel
-from homeassistant.components.http.view import HomeAssistantView
 
 from .const import DOMAIN
 
@@ -17,6 +16,7 @@ PANEL_TITLE = "Smart Irrigation"
 PANEL_ICON = "mdi:sprinkler-variant"
 PANEL_NAME = "smart-irrigation-panel"
 PANEL_URL_PATH = "smart-irrigation"
+STATIC_PATH = f"/local/{DOMAIN}"
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
@@ -29,18 +29,20 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         _LOGGER.error("Panel file not found: %s", panel_path)
         return
 
-    _LOGGER.debug("Registering panel from: %s", panel_path)
+    _LOGGER.info("Registering panel from: %s", panel_path)
 
-    # Register static path for serving the panel JS
+    # Register static path for serving the panel JS using local/ prefix
+    # This makes it accessible at /local/smart_irrigation_ai/
     try:
         hass.http.register_static_path(
-            f"/{DOMAIN}",
+            STATIC_PATH,
             str(panel_dir),
             cache_headers=False,
         )
-        _LOGGER.debug("Static path registered: /%s -> %s", DOMAIN, panel_dir)
+        _LOGGER.info("Static path registered: %s -> %s", STATIC_PATH, panel_dir)
     except Exception as err:
-        _LOGGER.debug("Static path registration: %s", err)
+        # Path may already be registered from previous load
+        _LOGGER.debug("Static path registration note: %s", err)
 
     # Register the custom panel using frontend's built-in panel method
     try:
@@ -53,9 +55,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             config={
                 "_panel_custom": {
                     "name": PANEL_NAME,
-                    "module_url": f"/{DOMAIN}/{PANEL_FILENAME}",
+                    "module_url": f"{STATIC_PATH}/{PANEL_FILENAME}",
                     "embed_iframe": False,
-                    "trust_external": False,
+                    "trust_external": True,  # Allow loading lit-element from CDN
                 }
             },
             require_admin=False,
