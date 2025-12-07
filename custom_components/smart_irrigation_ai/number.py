@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, DEFAULT_MAX_DAILY_RUNTIME
 
@@ -134,7 +135,7 @@ class RainDelayHoursNumber(SmartIrrigationNumberBase):
             from datetime import datetime
             try:
                 delay_until = datetime.fromisoformat(rain_delay)
-                remaining = (delay_until - datetime.now()).total_seconds() / 3600
+                remaining = (delay_until - dt_util.now()).total_seconds() / 3600
                 return max(0, round(remaining))
             except (ValueError, TypeError):
                 pass

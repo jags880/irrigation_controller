@@ -192,7 +192,7 @@ class SmartScheduler:
 
             # Build schedule
             self._schedule = {
-                "calculated_at": datetime.now().isoformat(),
+                "calculated_at": dt_util.now().isoformat(),
                 "zones": zone_schedule,
                 "total_runtime": sum(z.get("duration_minutes", 0) for z in zone_schedule),
                 "zones_to_water": len([z for z in zone_schedule if z.get("duration_minutes", 0) > 0]),
@@ -308,7 +308,7 @@ class SmartScheduler:
             await self._schedule_next_run()
             return False
 
-        if self._rain_delay_until and datetime.now() < self._rain_delay_until:
+        if self._rain_delay_until and dt_util.now() < self._rain_delay_until:
             _LOGGER.info("Skipping scheduled run (rain delay)")
             self._record_decision(today, "skipped", "Rain delay active")
             await self._schedule_next_run()
@@ -351,7 +351,7 @@ class SmartScheduler:
             return False
 
         self._is_running = True
-        self._last_run = datetime.now()
+        self._last_run = dt_util.now()
 
         try:
             # Build zone list for Rachio
@@ -440,7 +440,7 @@ class SmartScheduler:
             should_water = len(zones_needing_water) > 0
 
             decision = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": dt_util.now().isoformat(),
                 "should_water": should_water,
                 "zones_to_water": len(zones_needing_water),
                 "total_zones": len(recommendations),
@@ -462,7 +462,7 @@ class SmartScheduler:
             _LOGGER.error("Error making AI decision: %s", err)
             # On error, default to watering (fail-safe for plants)
             return {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": dt_util.now().isoformat(),
                 "should_water": True,
                 "reason": "AI decision error - defaulting to water",
                 "confidence": 0.5,
@@ -512,7 +512,7 @@ class SmartScheduler:
         """Record a watering decision for history tracking."""
         record = {
             "date": decision_date.isoformat(),
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": dt_util.now().isoformat(),
             "type": decision_type,  # "watering", "skipped", "ai_skipped"
             "reason": reason,
             "details": details or {},
@@ -577,7 +577,7 @@ class SmartScheduler:
         Args:
             hours: Number of hours to delay
         """
-        self._rain_delay_until = datetime.now() + timedelta(hours=hours)
+        self._rain_delay_until = dt_util.now() + timedelta(hours=hours)
         _LOGGER.info("Rain delay set until %s", self._rain_delay_until)
 
         # Also set on Rachio device

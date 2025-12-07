@@ -7,6 +7,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ class IrrigationCalendar:
                 delay_until = datetime.fromisoformat(rain_delay)
                 if start_date <= delay_until <= end_date:
                     events.append(CalendarEvent(
-                        start=datetime.now(),
+                        start=dt_util.now(),
                         end=delay_until,
                         summary="Rain Delay Active",
                         description="Irrigation paused due to rain delay",
@@ -153,7 +154,7 @@ class IrrigationCalendar:
         Returns:
             List of event dicts
         """
-        now = datetime.now()
+        now = dt_util.now()
         end = now + timedelta(days=days)
 
         events = await self.async_get_events(now, end)
