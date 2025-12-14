@@ -16,8 +16,9 @@ PANEL_TITLE = "Smart Irrigation"
 PANEL_ICON = "mdi:sprinkler-variant"
 PANEL_NAME = "smart-irrigation-panel"
 PANEL_URL_PATH = "smart-irrigation"
-# Use hacsfiles path pattern - this is the standard for HACS integrations
-STATIC_PATH = f"/hacsfiles/{DOMAIN}"
+# Use a custom API path for serving panel files - this is more reliable
+# than hacsfiles which requires HACS to manage the path
+STATIC_PATH = f"/api/{DOMAIN}/static"
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
@@ -33,7 +34,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     _LOGGER.info("Registering panel from: %s", panel_path)
 
     # Register static path for serving the panel JS
-    # Using hacsfiles pattern which is standard for HACS integrations
+    # Using /api/{domain}/static pattern for reliable serving
     try:
         hass.http.register_static_path(
             STATIC_PATH,
@@ -41,9 +42,15 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             cache_headers=False,
         )
         _LOGGER.info("Static path registered: %s -> %s", STATIC_PATH, panel_dir)
+    except ValueError as err:
+        # Path may already be registered from previous load - this is OK
+        _LOGGER.debug("Static path already registered: %s", err)
     except Exception as err:
-        # Path may already be registered from previous load
-        _LOGGER.debug("Static path registration note: %s", err)
+        # Unexpected error - log it prominently
+        _LOGGER.error("Failed to register static path %s: %s", STATIC_PATH, err)
+        import traceback
+        _LOGGER.error(traceback.format_exc())
+        return
 
     # Register the custom panel using frontend's built-in panel method
     try:
