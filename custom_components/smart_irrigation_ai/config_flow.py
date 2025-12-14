@@ -490,6 +490,7 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
         self._zones_config: dict[str, dict[str, Any]] = {}
         self._zone_keys: list[str] = []
         self._current_zone_index: int = 0
+        self._moisture_sensors: dict[str, str] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -513,12 +514,16 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             # Store schedule settings and move to zone configuration
             self._schedule_settings = user_input
 
-            # Get zones from config
+            # Get zones and moisture sensors from config
             data = {**dict(self.config_entry.data), **dict(self.config_entry.options)}
             zones = data.get(CONF_ZONES, {})
             self._zones_config = dict(zones) if zones else {}
             self._zone_keys = list(self._zones_config.keys())
             self._current_zone_index = 0
+
+            # Preserve moisture sensor settings
+            moisture_sensors = data.get(CONF_MOISTURE_SENSORS, {})
+            self._moisture_sensors = dict(moisture_sensors) if moisture_sensors else {}
 
             if self._zone_keys:
                 return await self.async_step_zone()
@@ -748,10 +753,11 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
         )
 
     def _save_options(self) -> FlowResult:
-        """Save all options including zones."""
-        # Combine schedule settings with zone config
+        """Save all options including zones and moisture sensors."""
+        # Combine schedule settings with zone config and moisture sensors
         options_data = {
             **self._schedule_settings,
             CONF_ZONES: self._zones_config,
+            CONF_MOISTURE_SENSORS: self._moisture_sensors,
         }
         return self.async_create_entry(title="", data=options_data)
