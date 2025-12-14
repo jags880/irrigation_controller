@@ -30,7 +30,7 @@ from .coordinator import SmartIrrigationCoordinator
 from .ai.irrigation_model import IrrigationAIModel
 from .scheduling.scheduler import SmartScheduler
 from .rachio.ha_controller import HAZoneController
-from .panel import async_register_panel, async_unregister_panel
+from .panel import async_register_panel, async_unregister_panel, async_setup_panel_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     websocket_api.async_register_command(hass, websocket_get_status)
     websocket_api.async_register_command(hass, websocket_get_schedule)
     websocket_api.async_register_command(hass, websocket_get_history)
+
+    # Register static path for panel files early in setup
+    await async_setup_panel_url(hass)
 
     return True
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from homeassistant.core import HomeAssistant
 from homeassistant.components.frontend import async_register_built_in_panel
+from homeassistant.components.http import StaticPathConfig
 
 from .const import DOMAIN
 
@@ -17,14 +18,51 @@ PANEL_ICON = "mdi:sprinkler-variant"
 PANEL_NAME = "smart-irrigation-panel"
 PANEL_URL_PATH = "smart-irrigation"
 # Use a custom path for serving panel files
-# The path must not conflict with reserved namespaces like /api/, /local/, etc.
 STATIC_PATH = f"/{DOMAIN}_panel"
+
+
+def get_panel_dir() -> Path:
+    """Get the path to the panel www directory."""
+    return Path(__file__).parent / "www"
+
+
+async def async_setup_panel_url(hass: HomeAssistant) -> bool:
+    """Register the static path for serving panel files. Call from async_setup."""
+    panel_dir = get_panel_dir()
+    panel_path = panel_dir / PANEL_FILENAME
+
+    if not panel_path.exists():
+        _LOGGER.error("Panel file not found: %s", panel_path)
+        return False
+
+    _LOGGER.info("Setting up panel static path: %s -> %s", STATIC_PATH, panel_dir)
+
+    # Register static path for serving the panel JS using async method
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(STATIC_PATH, str(panel_dir), cache_headers=False)]
+        )
+        _LOGGER.info("Static path registered successfully: %s", STATIC_PATH)
+        return True
+    except Exception as err:
+        _LOGGER.warning("Static path registration issue: %s", err)
+        # Try the older sync method as fallback
+        try:
+            hass.http.register_static_path(
+                STATIC_PATH,
+                str(panel_dir),
+                cache_headers=False,
+            )
+            _LOGGER.info("Static path registered via fallback method: %s", STATIC_PATH)
+            return True
+        except Exception as err2:
+            _LOGGER.debug("Fallback registration note: %s", err2)
+            return True  # May already be registered
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
     """Register the Smart Irrigation panel in the sidebar."""
-    # Get the path to our panel file
-    panel_dir = Path(__file__).parent / "www"
+    panel_dir = get_panel_dir()
     panel_path = panel_dir / PANEL_FILENAME
 
     if not panel_path.exists():
@@ -32,19 +70,6 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         return
 
     _LOGGER.info("Registering panel from: %s", panel_path)
-
-    # Register static path for serving the panel JS
-    # Using /{domain}_panel pattern to avoid reserved namespaces
-    try:
-        hass.http.register_static_path(
-            STATIC_PATH,
-            str(panel_dir),
-            cache_headers=False,
-        )
-        _LOGGER.info("Static path registered: %s -> %s", STATIC_PATH, panel_dir)
-    except Exception as err:
-        # Path may already be registered from previous load - continue anyway
-        _LOGGER.debug("Static path registration note (may already exist): %s", err)
 
     # Register the custom panel using frontend's built-in panel method
     try:
