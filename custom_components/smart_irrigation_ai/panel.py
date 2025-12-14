@@ -42,15 +42,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             cache_headers=False,
         )
         _LOGGER.info("Static path registered: %s -> %s", STATIC_PATH, panel_dir)
-    except ValueError as err:
-        # Path may already be registered from previous load - this is OK
-        _LOGGER.debug("Static path already registered: %s", err)
     except Exception as err:
-        # Unexpected error - log it prominently
-        _LOGGER.error("Failed to register static path %s: %s", STATIC_PATH, err)
-        import traceback
-        _LOGGER.error(traceback.format_exc())
-        return
+        # Path may already be registered from previous load - continue anyway
+        _LOGGER.debug("Static path registration note (may already exist): %s", err)
 
     # Register the custom panel using frontend's built-in panel method
     try:
