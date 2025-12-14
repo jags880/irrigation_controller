@@ -76,6 +76,11 @@
           "nozzle_type": "Sprinkler Type",
           "enabled": "Enabled"
         }
+      },
+      "moisture_sensors": {
+        "title": "Moisture Sensors",
+        "description": "Found {sensor_count} moisture sensors. Assign them to zones for smarter irrigation.",
+        "data": {}
       }
     }
   },
