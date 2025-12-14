@@ -64,6 +64,18 @@
           "sun_offset": "Minutes offset (negative = before, positive = after)",
           "cycle_soak_enabled": "Enable Cycle & Soak"
         }
+      },
+      "zone": {
+        "title": "Configure Zone {zone_number} of {total_zones}",
+        "description": "Configure settings for {zone_name}",
+        "data": {
+          "zone_type": "Vegetation Type",
+          "soil_type": "Soil Type",
+          "slope": "Slope",
+          "sun_exposure": "Sun Exposure",
+          "nozzle_type": "Sprinkler Type",
+          "enabled": "Enabled"
+        }
       }
     }
   },
