@@ -23,8 +23,8 @@
         }
       },
       "zone": {
-        "title": "Configure Zone {zone_number} of {total_zones}",
-        "description": "Configure settings for {zone_name}",
+        "title": "{zone_name} (Zone {zone_number} of {total_zones})",
+        "description": "Configure vegetation, soil, and sprinkler settings for this zone.",
         "data": {
           "zone_type": "Vegetation Type",
           "soil_type": "Soil Type",
@@ -35,8 +35,8 @@
         }
       },
       "moisture_sensors": {
-        "title": "Moisture Sensor for Zone {zone_number} of {total_zones}",
-        "description": "Select a moisture sensor for {zone_name}, or use AI estimates.",
+        "title": "{zone_name} (Zone {zone_number} of {total_zones})",
+        "description": "Select a moisture sensor for this zone, or use AI estimates.",
         "data": {
           "moisture_sensor": "Moisture Sensor"
         }
@@ -68,8 +68,8 @@
         }
       },
       "zone": {
-        "title": "Configure Zone {zone_number} of {total_zones}",
-        "description": "Configure settings for {zone_name}",
+        "title": "{zone_name} (Zone {zone_number} of {total_zones})",
+        "description": "Configure vegetation, soil, and sprinkler settings for this zone.",
         "data": {
           "zone_type": "Vegetation Type",
           "soil_type": "Soil Type",
@@ -80,8 +80,8 @@
         }
       },
       "moisture_sensors": {
-        "title": "Moisture Sensor for Zone {zone_number} of {total_zones}",
-        "description": "Select a moisture sensor for {zone_name}, or use AI estimates.",
+        "title": "{zone_name} (Zone {zone_number} of {total_zones})",
+        "description": "Select a moisture sensor for this zone, or use AI estimates.",
         "data": {
           "moisture_sensor": "Moisture Sensor"
         }
