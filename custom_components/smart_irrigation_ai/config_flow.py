@@ -484,10 +484,17 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for Smart Irrigation AI."""
 
+    def __init__(self) -> None:
+        """Initialize options flow."""
+        self._schedule_settings: dict[str, Any] = {}
+        self._zones_config: dict[str, dict[str, Any]] = {}
+        self._zone_keys: list[str] = []
+        self._current_zone_index: int = 0
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle options flow."""
+        """Handle options flow - schedule settings."""
         if user_input is not None:
             # Process the time type
             time_type = user_input.pop("time_type", "specific")
@@ -503,7 +510,21 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
                     int(d) for d in user_input[CONF_WATERING_DAYS]
                 ]
 
-            return self.async_create_entry(title="", data=user_input)
+            # Store schedule settings and move to zone configuration
+            self._schedule_settings = user_input
+
+            # Get zones from config
+            data = {**dict(self.config_entry.data), **dict(self.config_entry.options)}
+            zones = data.get(CONF_ZONES, {})
+            self._zones_config = dict(zones) if zones else {}
+            self._zone_keys = list(self._zones_config.keys())
+            self._current_zone_index = 0
+
+            if self._zone_keys:
+                return await self.async_step_zone()
+            else:
+                # No zones to configure, save and exit
+                return self._save_options()
 
         # Merge data with options to get current effective config
         # Use dict() to ensure we have mutable dicts, not MappingProxyType
@@ -611,3 +632,126 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=data_schema,
         )
+
+    async def async_step_zone(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure individual zone."""
+        if user_input is not None:
+            zone_key = self._zone_keys[self._current_zone_index]
+            current_zone = self._zones_config.get(zone_key, {})
+
+            # Update zone config with user input while preserving other fields
+            current_zone.update({
+                "zone_type": user_input.get("zone_type", "cool_season_grass"),
+                "soil_type": user_input.get("soil_type", "loam"),
+                "slope": user_input.get("slope", "flat"),
+                "sun_exposure": user_input.get("sun_exposure", "full_sun"),
+                "nozzle_type": user_input.get("nozzle_type", "fixed_spray"),
+                "enabled": user_input.get("enabled", True),
+            })
+            self._zones_config[zone_key] = current_zone
+
+            self._current_zone_index += 1
+
+            if self._current_zone_index < len(self._zone_keys):
+                return await self.async_step_zone()
+            else:
+                return self._save_options()
+
+        zone_key = self._zone_keys[self._current_zone_index]
+        zone_config = self._zones_config.get(zone_key, {})
+        zone_name = zone_config.get("name", f"Zone {self._current_zone_index + 1}")
+
+        zone_type_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in ZONE_TYPES.items()
+        ]
+
+        soil_type_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in SOIL_TYPES.items()
+        ]
+
+        slope_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in SLOPE_TYPES.items()
+        ]
+
+        sun_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in SUN_EXPOSURE.items()
+        ]
+
+        nozzle_options = [
+            {"value": k, "label": v["name"]}
+            for k, v in NOZZLE_TYPES.items()
+        ]
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                "zone_type",
+                default=zone_config.get("zone_type", "cool_season_grass"),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=zone_type_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional(
+                "soil_type",
+                default=zone_config.get("soil_type", "loam"),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=soil_type_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional(
+                "slope",
+                default=zone_config.get("slope", "flat"),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=slope_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional(
+                "sun_exposure",
+                default=zone_config.get("sun_exposure", "full_sun"),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=sun_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional(
+                "nozzle_type",
+                default=zone_config.get("nozzle_type", "fixed_spray"),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=nozzle_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Optional("enabled", default=zone_config.get("enabled", True)): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="zone",
+            data_schema=data_schema,
+            description_placeholders={
+                "zone_name": zone_name,
+                "zone_number": str(self._current_zone_index + 1),
+                "total_zones": str(len(self._zone_keys)),
+            },
+        )
+
+    def _save_options(self) -> FlowResult:
+        """Save all options including zones."""
+        # Combine schedule settings with zone config
+        options_data = {
+            **self._schedule_settings,
+            CONF_ZONES: self._zones_config,
+        }
+        return self.async_create_entry(title="", data=options_data)
