@@ -11,7 +11,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_ZONES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,6 +27,8 @@ async def async_setup_entry(
     rachio_api = data["rachio_api"]
     scheduler = data["scheduler"]
     zones_info = data.get("zones_info", [])
+    config = data.get("config", {})
+    zones_config = config.get(CONF_ZONES, {})
 
     entities = []
 
@@ -51,8 +53,16 @@ async def async_setup_entry(
             _LOGGER.warning("Skipping zone switch creation - no valid zone ID: %s", zone)
             continue
 
+        # Get zone configuration settings (soil type, vegetation, etc.)
+        # Try multiple keys since config might be stored with entity_id or zone_id
+        entity_id = zone.get("entity_id")
+        zone_config = zones_config.get(zone_id) or zones_config.get(entity_id) or {}
+
         entities.append(
-            ZoneSwitch(coordinator, entry, rachio_api, scheduler, zone_id, zone_name, zone_number)
+            ZoneSwitch(
+                coordinator, entry, rachio_api, scheduler,
+                zone_id, zone_name, zone_number, zone_config
+            )
         )
 
     async_add_entities(entities)
@@ -185,6 +195,7 @@ class ZoneSwitch(SmartIrrigationSwitchBase):
         zone_id: str,
         zone_name: str,
         zone_number: int,
+        zone_config: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the switch."""
         super().__init__(
@@ -198,6 +209,7 @@ class ZoneSwitch(SmartIrrigationSwitchBase):
         self._zone_id = zone_id
         self._zone_name = zone_name
         self._zone_number = zone_number
+        self._zone_config = zone_config or {}
         self._attr_icon = "mdi:sprinkler"
 
     @property
@@ -234,6 +246,16 @@ class ZoneSwitch(SmartIrrigationSwitchBase):
             "zone_id": self._zone_id,
             "zone_number": self._zone_number,
         }
+
+        # Add zone configuration settings
+        if self._zone_config:
+            attrs.update({
+                "zone_type": self._zone_config.get("zone_type", "cool_season_grass"),
+                "soil_type": self._zone_config.get("soil_type", "loam"),
+                "slope": self._zone_config.get("slope", "flat"),
+                "sun_exposure": self._zone_config.get("sun_exposure", "full_sun"),
+                "nozzle_type": self._zone_config.get("nozzle_type", "fixed_spray"),
+            })
 
         if self.coordinator.data is None:
             return attrs
