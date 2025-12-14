@@ -503,7 +503,8 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
 
             return self.async_create_entry(title="", data=user_input)
 
-        data = self.config_entry.data
+        # Merge data with options to get current effective config
+        data = {**self.config_entry.data, **self.config_entry.options}
 
         days_options = [
             {"value": "0", "label": "Monday"},
@@ -564,11 +565,11 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_SCHEDULE_TIME,
-                default=data.get(CONF_SCHEDULE_TIME, DEFAULT_SCHEDULE_TIME),
+                default=data.get(CONF_SCHEDULE_TIME) or DEFAULT_SCHEDULE_TIME,
             ): selector.TimeSelector(),
             vol.Optional(
                 CONF_SCHEDULE_SUN_EVENT,
-                default=data.get(CONF_SCHEDULE_SUN_EVENT, SUN_EVENT_SUNRISE),
+                default=data.get(CONF_SCHEDULE_SUN_EVENT) or SUN_EVENT_SUNRISE,
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=sun_event_options,

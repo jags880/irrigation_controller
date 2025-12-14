@@ -63,6 +63,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Smart Irrigation AI from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    # Merge entry.data with entry.options to get effective config
+    # Options flow updates are stored in entry.options, so we need to merge them
+    config = {**entry.data, **entry.options}
+
     # Use Home Assistant's Rachio integration
     controller = HAZoneController(hass)
 
@@ -103,14 +107,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize AI model
     ai_model = IrrigationAIModel(
         hass=hass,
-        config=entry.data,
-        zones_config=entry.data.get(CONF_ZONES, {}),
+        config=config,
+        zones_config=config.get(CONF_ZONES, {}),
     )
 
     # Initialize scheduler
     scheduler = SmartScheduler(
         hass=hass,
-        config=entry.data,
+        config=config,
         rachio_api=controller,
         ai_model=ai_model,
         use_ha_rachio=True,
@@ -135,6 +139,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "scheduler": scheduler,
         "device_info": device_info,
         "zones_info": zones_info,
+        "config": config,
     }
 
     # Register device
