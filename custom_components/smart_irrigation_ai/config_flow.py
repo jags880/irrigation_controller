@@ -501,10 +501,17 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             else:
                 user_input[CONF_SCHEDULE_TIME] = None
 
+            # Convert watering_days from strings back to integers
+            if CONF_WATERING_DAYS in user_input:
+                user_input[CONF_WATERING_DAYS] = [
+                    int(d) for d in user_input[CONF_WATERING_DAYS]
+                ]
+
             return self.async_create_entry(title="", data=user_input)
 
         # Merge data with options to get current effective config
-        data = {**self.config_entry.data, **self.config_entry.options}
+        # Use dict() to ensure we have mutable dicts, not MappingProxyType
+        data = {**dict(self.config_entry.data), **dict(self.config_entry.options)}
 
         days_options = [
             {"value": "0", "label": "Monday"},
@@ -531,8 +538,18 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             {"value": SUN_EVENT_SUNSET, "label": "Sunset"},
         ]
 
-        current_days = [str(d) for d in data.get(CONF_WATERING_DAYS, [0, 2, 4, 6])]
+        # Safely get watering days with fallback for None values
+        watering_days = data.get(CONF_WATERING_DAYS)
+        if not watering_days:
+            watering_days = DEFAULT_WATERING_DAYS
+        current_days = [str(d) for d in watering_days]
+
         current_time_type = "sun" if data.get(CONF_SCHEDULE_SUN_EVENT) else "specific"
+
+        # Safely get sun_offset with fallback for None
+        sun_offset = data.get(CONF_SUN_OFFSET)
+        if sun_offset is None:
+            sun_offset = DEFAULT_SUN_OFFSET
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -547,7 +564,7 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Required(
                 CONF_SCHEDULE_MODE,
-                default=data.get(CONF_SCHEDULE_MODE, SCHEDULE_MODE_START_AT),
+                default=data.get(CONF_SCHEDULE_MODE) or SCHEDULE_MODE_START_AT,
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=schedule_mode_options,
@@ -578,7 +595,7 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_SUN_OFFSET,
-                default=data.get(CONF_SUN_OFFSET, DEFAULT_SUN_OFFSET),
+                default=sun_offset,
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=-120,
