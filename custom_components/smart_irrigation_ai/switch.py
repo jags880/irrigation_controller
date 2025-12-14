@@ -42,6 +42,10 @@ async def async_setup_entry(
         zone_name = zone.get("name", f"Zone {zone.get('zone_number', '?')}")
         zone_number = zone.get("zone_number", 0)
 
+        # Ensure zone_name starts with "Zone" for consistent entity naming
+        if not zone_name.lower().startswith("zone"):
+            zone_name = f"Zone {zone_name}"
+
         # Skip zones without valid ID
         if not zone_id:
             _LOGGER.warning("Skipping zone switch creation - no valid zone ID: %s", zone)
