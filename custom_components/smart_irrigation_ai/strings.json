@@ -35,9 +35,11 @@
         }
       },
       "moisture_sensors": {
-        "title": "Moisture Sensors",
-        "description": "Found {sensor_count} moisture sensors. Assign them to zones for smarter irrigation.",
-        "data": {}
+        "title": "Moisture Sensor for Zone {zone_number} of {total_zones}",
+        "description": "Select a moisture sensor for {zone_name}, or use AI estimates.",
+        "data": {
+          "moisture_sensor": "Moisture Sensor"
+        }
       }
     },
     "error": {
@@ -78,9 +80,11 @@
         }
       },
       "moisture_sensors": {
-        "title": "Moisture Sensors",
-        "description": "Found {sensor_count} moisture sensors. Assign them to zones for smarter irrigation.",
-        "data": {}
+        "title": "Moisture Sensor for Zone {zone_number} of {total_zones}",
+        "description": "Select a moisture sensor for {zone_name}, or use AI estimates.",
+        "data": {
+          "moisture_sensor": "Moisture Sensor"
+        }
       }
     }
   },

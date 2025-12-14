@@ -62,6 +62,9 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._zones_config: dict[str, dict[str, Any]] = {}
         self._current_zone_index = 0
         self._rain_sensors: list[dict[str, Any]] = []
+        self._moisture_sensors: dict[str, str] = {}
+        self._current_moisture_zone_index: int = 0
+        self._available_moisture_sensors: list[dict[str, str]] = []
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -398,54 +401,64 @@ class SmartIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_moisture_sensors(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Configure moisture sensors for zones."""
+        """Configure moisture sensor for current zone."""
+        zone_keys = list(self._zones_config.keys())
+
         if user_input is not None:
-            self._moisture_sensors = {}
-            for zone_key in self._zones_config:
-                sensor_key = f"moisture_{zone_key}"
-                if sensor_key in user_input and user_input[sensor_key]:
-                    self._moisture_sensors[zone_key] = user_input[sensor_key]
+            # Save the sensor selection for the current zone
+            zone_key = zone_keys[self._current_moisture_zone_index]
+            sensor_value = user_input.get("moisture_sensor", "")
+            if sensor_value:
+                self._moisture_sensors[zone_key] = sensor_value
 
-            return self._create_entry()
+            self._current_moisture_zone_index += 1
 
-        # Get available moisture sensors (Ecowitt and others)
-        moisture_sensors = []
-        for state in self.hass.states.async_all("sensor"):
-            entity_id = state.entity_id.lower()
-            if any(keyword in entity_id for keyword in ["moisture", "soil", "humidity"]):
-                # Skip weather-related humidity sensors
-                if "weather" not in entity_id and "indoor" not in entity_id:
-                    moisture_sensors.append({
-                        "value": state.entity_id,
-                        "label": state.attributes.get("friendly_name", state.entity_id),
-                    })
+            if self._current_moisture_zone_index < len(zone_keys):
+                return await self.async_step_moisture_sensors()
+            else:
+                return self._create_entry()
 
-        if not moisture_sensors:
-            # No sensors found, skip this step
-            self._moisture_sensors = {}
-            return self._create_entry()
+        # On first call, discover available moisture sensors
+        if self._current_moisture_zone_index == 0:
+            self._available_moisture_sensors = []
+            for state in self.hass.states.async_all("sensor"):
+                entity_id = state.entity_id.lower()
+                if any(keyword in entity_id for keyword in ["moisture", "soil", "humidity"]):
+                    # Skip weather-related humidity sensors
+                    if "weather" not in entity_id and "indoor" not in entity_id:
+                        self._available_moisture_sensors.append({
+                            "value": state.entity_id,
+                            "label": state.attributes.get("friendly_name", state.entity_id),
+                        })
 
-        # Build schema with optional sensor for each zone
-        schema_dict = {}
-        for zone_key, zone_config in self._zones_config.items():
-            zone_name = zone_config.get("name", zone_key)
+            if not self._available_moisture_sensors:
+                # No sensors found, skip this step
+                return self._create_entry()
 
-            options = [{"value": "", "label": "None (use AI estimates)"}] + moisture_sensors
+        # Get current zone info
+        zone_key = zone_keys[self._current_moisture_zone_index]
+        zone_config = self._zones_config.get(zone_key, {})
+        zone_name = zone_config.get("name", f"Zone {self._current_moisture_zone_index + 1}")
 
-            schema_dict[vol.Optional(f"moisture_{zone_key}")] = selector.SelectSelector(
+        options = [{"value": "", "label": "None (use AI estimates)"}] + self._available_moisture_sensors
+
+        data_schema = vol.Schema({
+            vol.Optional("moisture_sensor", default=""): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 ),
-            )
-
-        data_schema = vol.Schema(schema_dict)
+            ),
+        })
 
         return self.async_show_form(
             step_id="moisture_sensors",
             data_schema=data_schema,
             description_placeholders={
-                "sensor_count": str(len(moisture_sensors)),
+                "zone_name": zone_name,
+                "zone_number": str(self._current_moisture_zone_index + 1),
+                "total_zones": str(len(zone_keys)),
+                "sensor_count": str(len(self._available_moisture_sensors)),
             },
         )
 
@@ -491,6 +504,8 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
         self._zone_keys: list[str] = []
         self._current_zone_index: int = 0
         self._moisture_sensors: dict[str, str] = {}
+        self._current_moisture_zone_index: int = 0
+        self._available_moisture_sensors: list[dict[str, str]] = []
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -755,55 +770,66 @@ class SmartIrrigationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_moisture_sensors(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Configure moisture sensors for zones."""
+        """Configure moisture sensor for current zone."""
         if user_input is not None:
-            self._moisture_sensors = {}
-            for zone_key in self._zones_config:
-                sensor_key = f"moisture_{zone_key}"
-                if sensor_key in user_input and user_input[sensor_key]:
-                    self._moisture_sensors[zone_key] = user_input[sensor_key]
+            # Save the sensor selection for the current zone
+            zone_key = self._zone_keys[self._current_moisture_zone_index]
+            sensor_value = user_input.get("moisture_sensor", "")
+            if sensor_value:
+                self._moisture_sensors[zone_key] = sensor_value
+            elif zone_key in self._moisture_sensors:
+                # Remove if set to None
+                del self._moisture_sensors[zone_key]
 
-            return self._save_options()
+            self._current_moisture_zone_index += 1
 
-        # Get available moisture sensors (Ecowitt and others)
-        moisture_sensors = []
-        for state in self.hass.states.async_all("sensor"):
-            entity_id = state.entity_id.lower()
-            if any(keyword in entity_id for keyword in ["moisture", "soil", "humidity"]):
-                # Skip weather-related humidity sensors
-                if "weather" not in entity_id and "indoor" not in entity_id:
-                    moisture_sensors.append({
-                        "value": state.entity_id,
-                        "label": state.attributes.get("friendly_name", state.entity_id),
-                    })
+            if self._current_moisture_zone_index < len(self._zone_keys):
+                return await self.async_step_moisture_sensors()
+            else:
+                return self._save_options()
 
-        if not moisture_sensors:
-            # No sensors found, skip this step but allow clearing existing mappings
-            self._moisture_sensors = {}
-            return self._save_options()
+        # On first call, discover available moisture sensors
+        if self._current_moisture_zone_index == 0:
+            self._available_moisture_sensors = []
+            for state in self.hass.states.async_all("sensor"):
+                entity_id = state.entity_id.lower()
+                if any(keyword in entity_id for keyword in ["moisture", "soil", "humidity"]):
+                    # Skip weather-related humidity sensors
+                    if "weather" not in entity_id and "indoor" not in entity_id:
+                        self._available_moisture_sensors.append({
+                            "value": state.entity_id,
+                            "label": state.attributes.get("friendly_name", state.entity_id),
+                        })
 
-        # Build schema with optional sensor for each zone
-        schema_dict = {}
-        for zone_key, zone_config in self._zones_config.items():
-            zone_name = zone_config.get("name", zone_key)
-            current_sensor = self._moisture_sensors.get(zone_key, "")
+            if not self._available_moisture_sensors:
+                # No sensors found, skip this step
+                return self._save_options()
 
-            options = [{"value": "", "label": "None (use AI estimates)"}] + moisture_sensors
+        # Get current zone info
+        zone_key = self._zone_keys[self._current_moisture_zone_index]
+        zone_config = self._zones_config.get(zone_key, {})
+        zone_name = zone_config.get("name", f"Zone {self._current_moisture_zone_index + 1}")
+        current_sensor = self._moisture_sensors.get(zone_key, "")
 
-            schema_dict[vol.Optional(f"moisture_{zone_key}", default=current_sensor)] = selector.SelectSelector(
+        options = [{"value": "", "label": "None (use AI estimates)"}] + self._available_moisture_sensors
+
+        data_schema = vol.Schema({
+            vol.Optional("moisture_sensor", default=current_sensor): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 ),
-            )
-
-        data_schema = vol.Schema(schema_dict)
+            ),
+        })
 
         return self.async_show_form(
             step_id="moisture_sensors",
             data_schema=data_schema,
             description_placeholders={
-                "sensor_count": str(len(moisture_sensors)),
+                "zone_name": zone_name,
+                "zone_number": str(self._current_moisture_zone_index + 1),
+                "total_zones": str(len(self._zone_keys)),
+                "sensor_count": str(len(self._available_moisture_sensors)),
             },
         )
 
